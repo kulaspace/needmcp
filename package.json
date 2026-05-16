@@ -1,0 +1,15 @@
+{
+  "name": "needmcp",
+ "version": "0.1.0",
+  "description": "needmcp official cli",
+  "main": "index.js",
+  "bin": {
+    "needmcp": "./index.js"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": ["cli", "npx", "needmcp"],
+  "author": "Sutriadi Ramadhan (Ine)",
+  "license": "ISC"
+}
