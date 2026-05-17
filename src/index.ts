@@ -3,6 +3,7 @@
 import { Command } from "commander";
 import pc from "picocolors";
 import { runSetup, runUninstall } from "./setup.js";
+import { CliError } from "./errors.js";
 
 const program = new Command();
 
@@ -18,7 +19,7 @@ Examples:
   ${pc.cyan("needmcp setup")}
 
   ${pc.dim("# Setup with API key")}
-  ${pc.cyan("needmcp setup --key sk-xxxx")}
+  ${pc.cyan("needmcp setup --key sk-need-xxxx")}
 
   ${pc.dim("# Remove NeedMCP from clients")}
   ${pc.cyan("needmcp remove")}
@@ -36,6 +37,9 @@ program
       if (err instanceof Error && err.name === "ExitPromptError") {
         process.exit(0);
       }
+      if (err instanceof CliError) {
+        process.exit(1);
+      }
       console.error(pc.red("Unexpected error:"), err);
       process.exit(1);
     }
@@ -50,6 +54,9 @@ program
     } catch (err) {
       if (err instanceof Error && err.name === "ExitPromptError") {
         process.exit(0);
+      }
+      if (err instanceof CliError) {
+        process.exit(1);
       }
       console.error(pc.red("Unexpected error:"), err);
       process.exit(1);

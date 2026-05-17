@@ -4,8 +4,10 @@ import { execSync } from "node:child_process";
 import { join } from "node:path";
 import { readJsonConfig, writeJsonConfig, mergeServerEntry, appendTomlServer, removeServerEntry, removeTomlServer } from "./mcp-writer.js";
 import { loadConfig, saveConfig, resolveMcpUrl } from "./config.js";
-import { ALL_CLIENTS, detectAllClients, resolvePath } from "./clients/index.js";
+import { ALL_CLIENTS, detectAllClients, resolvePath, resolveClientPaths } from "./clients/index.js";
 import type { ClientConfig, DetectedClient } from "./clients/index.js";
+import { CliError } from "./errors.js";
+import { validateApiKey } from "./validation.js";
 
 function statusIcon(dc: DetectedClient): string {
   if (dc.configured) return pc.green("●");
@@ -20,14 +22,19 @@ function statusText(dc: DetectedClient): string {
 }
 
 function maskKey(k: string): string {
-  if (k.length <= 8) return "****";
-  return k.slice(0, 3) + "..." + k.slice(-4);
+  if (k.length <= 12) return "****";
+  return k.slice(0, 8) + "..." + k.slice(-4);
 }
 
 async function ensureApiKey(providedKey?: string): Promise<string> {
   const config = await loadConfig();
 
   if (providedKey) {
+    const err = validateApiKey(providedKey);
+    if (err) {
+      console.error(pc.red(err));
+      throw new CliError("Invalid API key");
+    }
     if (providedKey !== config.apiKey) {
       await saveConfig({ ...config, apiKey: providedKey });
     }
@@ -35,32 +42,34 @@ async function ensureApiKey(providedKey?: string): Promise<string> {
   }
 
   if (config.apiKey) {
-    const use = await confirm({
-      message: `Use stored API key ${pc.cyan(maskKey(config.apiKey))}?`,
-    });
-    if (isCancel(use)) {
-      cancel("Setup cancelled");
-      process.exit(1);
+    const validationErr = validateApiKey(config.apiKey);
+    if (validationErr) {
+      console.warn(pc.yellow(`Stored API key invalid: ${validationErr}. Please enter a new key.`));
+    } else {
+      const use = await confirm({
+        message: `Use stored API key ${pc.cyan(maskKey(config.apiKey))}?`,
+      });
+      if (isCancel(use)) {
+        cancel("Setup cancelled");
+        throw new CliError("Setup cancelled");
+      }
+      if (use) return config.apiKey;
     }
-    if (use) return config.apiKey;
   }
 
   const key = await text({
     message: "Enter your NeedMCP API key:",
     placeholder: "sk-need-xxx",
-    validate: (v) => {
-      if (!v) return "API key is required";
-      if (v.length < 10) return "API key seems too short";
-    },
+    validate: (v) => validateApiKey(v),
   });
 
   if (isCancel(key)) {
     cancel("Setup cancelled");
-    process.exit(1);
+    throw new CliError("Setup cancelled");
   }
 
-  await saveConfig({ ...config, apiKey: key as string });
-  return key as string;
+  await saveConfig({ ...config, apiKey: key });
+  return key;
 }
 
 interface SetupResult {
@@ -68,19 +77,6 @@ interface SetupResult {
   clientName: string;
   success: boolean;
   message: string;
-}
-
-function resolveClientPaths(client: ClientConfig, scope?: "global" | "project"): string[] {
-  if (scope === "global") {
-    return [...(client.globalPaths ?? [])];
-  }
-  if (scope === "project") {
-    return [...((client.projectPaths ?? []).map((p) => join(process.cwd(), p)))];
-  }
-  return [
-    ...(client.globalPaths ?? []),
-    ...((client.projectPaths ?? []).map((p) => join(process.cwd(), p))),
-  ];
 }
 
 async function setupJsonClient(
@@ -98,7 +94,10 @@ async function setupJsonClient(
   const resolved = resolvePath(paths[0]);
 
   const existing = await readJsonConfig(resolved);
-  const entry = client.buildEntry!(apiKey, mcpUrl);
+  if (!client.buildEntry) {
+    return { clientId: client.id, clientName: client.name, success: false, message: "No entry builder defined" };
+  }
+  const entry = client.buildEntry(apiKey, mcpUrl);
   const key = client.configKey ?? "mcpServers";
   const name = client.serverName ?? "needmcp";
 
@@ -127,7 +126,10 @@ async function setupTomlClient(
 
   const resolved = resolvePath(paths[0]);
 
-  const entry = client.buildEntry!(apiKey, mcpUrl);
+  if (!client.buildEntry) {
+    return { clientId: client.id, clientName: client.name, success: false, message: "No entry builder defined" };
+  }
+  const entry = client.buildEntry(apiKey, mcpUrl);
   const { alreadyExists } = await appendTomlServer(resolved, "needmcp", entry);
 
   return {
@@ -143,7 +145,10 @@ async function setupCliClient(
   apiKey: string,
   mcpUrl: string
 ): Promise<SetupResult> {
-  const cmd = client.buildCommand!(apiKey, mcpUrl);
+  if (!client.buildCommand) {
+    return { clientId: client.id, clientName: client.name, success: false, message: "No command builder defined" };
+  }
+  const cmd = client.buildCommand(apiKey, mcpUrl);
 
   process.stdout.write(`\n    Running: ${pc.dim(cmd)}\n\n`);
   try {
@@ -204,25 +209,25 @@ export async function runSetup(providedKey?: string): Promise<void> {
 
   if (isCancel(selected) || !selected) {
     cancel("No client selected");
-    process.exit(1);
+    throw new CliError("No client selected");
   }
 
-  const clientId = selected as string;
+  const clientId = selected;
 
   const scope = await select({
     message: "Config scope:",
     options: [
-      { value: "global", label: "Global", hint: "Install system-wide" },
-      { value: "project", label: "Project", hint: "Install for current project only" },
+      { value: "global" as const, label: "Global", hint: "Install system-wide" },
+      { value: "project" as const, label: "Project", hint: "Install for current project only" },
     ],
   });
 
   if (isCancel(scope)) {
     cancel("Setup cancelled");
-    process.exit(1);
+    throw new CliError("Setup cancelled");
   }
 
-  outro(`Setting up ${pc.cyan(clientId)} (${scope as string})...\n`);
+  outro(`Setting up ${pc.cyan(clientId)} (${scope})...\n`);
 
   const results: SetupResult[] = [];
 
@@ -232,7 +237,7 @@ export async function runSetup(providedKey?: string): Promise<void> {
     process.stdout.write(label);
 
     try {
-      const result = await setupClient(client, apiKey, mcpUrl, scope as "global" | "project");
+      const result = await setupClient(client, apiKey, mcpUrl, scope);
       results.push(result);
 
       if (result.success) {
@@ -344,7 +349,7 @@ export async function runUninstall(): Promise<void> {
 
   if (eligible.length === 0) {
     cancel("No configured or detected clients found");
-    process.exit(1);
+    throw new CliError("No clients found");
   }
 
   const sortWeight = (dc: DetectedClient): number => dc.configured ? 0 : 1;
@@ -363,25 +368,25 @@ export async function runUninstall(): Promise<void> {
 
   if (isCancel(selected) || !selected) {
     cancel("No client selected");
-    process.exit(1);
+    throw new CliError("No client selected");
   }
 
-  const clientId = selected as string;
+  const clientId = selected;
 
   const scope = await select({
     message: "Config scope:",
     options: [
-      { value: "global", label: "Global", hint: "Remove from system-wide config" },
-      { value: "project", label: "Project", hint: "Remove from current project only" },
+      { value: "global" as const, label: "Global", hint: "Remove from system-wide config" },
+      { value: "project" as const, label: "Project", hint: "Remove from current project only" },
     ],
   });
 
   if (isCancel(scope)) {
     cancel("Remove cancelled");
-    process.exit(1);
+    throw new CliError("Remove cancelled");
   }
 
-  outro(`Removing from ${pc.cyan(clientId)} (${scope as string})...\n`);
+  outro(`Removing from ${pc.cyan(clientId)} (${scope})...\n`);
 
   const results: SetupResult[] = [];
 
@@ -390,7 +395,7 @@ export async function runUninstall(): Promise<void> {
     process.stdout.write(`  ${client.name}...`);
 
     try {
-      const result = await removeClient(client, scope as "global" | "project");
+      const result = await removeClient(client, scope);
       results.push(result);
 
       if (result.success) {

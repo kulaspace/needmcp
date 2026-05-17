@@ -4,12 +4,24 @@
   "description": "needmcp official cli",
   "type": "module",
   "main": "./dist/cli.mjs",
+  "exports": {
+    ".": "./dist/cli.mjs"
+  },
   "bin": {
     "needmcp": "./dist/cli.mjs"
   },
+  "engines": {
+    "node": ">=22"
+  },
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "build": "tsup",
-    "dev": "tsup --watch"
+    "dev": "tsup --watch",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit"
   },
   "keywords": [
     "cli",
@@ -18,14 +30,16 @@
   ],
   "author": "Sutriadi Ramadhan (Ine)",
   "license": "ISC",
-  "devDependencies": {
-    "@clack/prompts": "^0.10.1",
-    "@types/node": "^22.15.3",
-    "picocolors": "^1.1.1",
-    "tsup": "^8.4.0",
-    "typescript": "^5.8.3"
-  },
   "dependencies": {
-    "commander": "^14.0.3"
+    "@clack/prompts": "^0.10.1",
+    "commander": "^14.0.3",
+    "picocolors": "^1.1.1",
+    "smol-toml": "^1.3.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.3",
+    "tsup": "^8.4.0",
+    "typescript": "^5.8.3",
+    "vitest": "^3.1.3"
   }
 }

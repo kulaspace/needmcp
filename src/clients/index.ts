@@ -1,7 +1,7 @@
 import { access } from "node:fs/promises";
 import { join } from "node:path";
 import { homedir } from "node:os";
-import { execSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import { readJsonConfig } from "../mcp-writer.js";
 import type { ClientConfig, DetectedClient } from "./types.js";
 import { JSON_CLIENTS } from "./json.js";
@@ -24,18 +24,21 @@ export function resolvePath(p: string): string {
   return p.startsWith("~") ? join(home, p.slice(1)) : p;
 }
 
-async function checkJsonClient(client: ClientConfig, scope?: "global" | "project"): Promise<DetectedClient> {
-  let paths: string[];
+export function resolveClientPaths(client: ClientConfig, scope?: "global" | "project"): string[] {
   if (scope === "global") {
-    paths = [...(client.globalPaths ?? [])];
-  } else if (scope === "project") {
-    paths = [...((client.projectPaths ?? []).map((p) => join(process.cwd(), p)))];
-  } else {
-    paths = [
-      ...(client.globalPaths ?? []),
-      ...((client.projectPaths ?? []).map((p) => join(process.cwd(), p))),
-    ];
+    return [...(client.globalPaths ?? [])];
   }
+  if (scope === "project") {
+    return [...((client.projectPaths ?? []).map((p) => join(process.cwd(), p)))];
+  }
+  return [
+    ...(client.globalPaths ?? []),
+    ...((client.projectPaths ?? []).map((p) => join(process.cwd(), p))),
+  ];
+}
+
+async function checkJsonClient(client: ClientConfig, scope?: "global" | "project"): Promise<DetectedClient> {
+  const paths = resolveClientPaths(client, scope);
 
   for (const p of paths) {
     const resolved = resolvePath(p);
@@ -54,17 +57,7 @@ async function checkJsonClient(client: ClientConfig, scope?: "global" | "project
 }
 
 async function checkTomlClient(client: ClientConfig, scope?: "global" | "project"): Promise<DetectedClient> {
-  let paths: string[];
-  if (scope === "global") {
-    paths = [...(client.globalPaths ?? [])];
-  } else if (scope === "project") {
-    paths = [...((client.projectPaths ?? []).map((p) => join(process.cwd(), p)))];
-  } else {
-    paths = [
-      ...(client.globalPaths ?? []),
-      ...((client.projectPaths ?? []).map((p) => join(process.cwd(), p))),
-    ];
-  }
+  const paths = resolveClientPaths(client, scope);
 
   for (const p of paths) {
     const resolved = resolvePath(p);
@@ -81,8 +74,8 @@ async function checkCliClient(client: ClientConfig): Promise<DetectedClient> {
   const tools = client.detectPaths ?? [];
   for (const tool of tools) {
     try {
-      const cmd = process.platform === "win32" ? `where ${tool}` : `which ${tool}`;
-      execSync(cmd, { stdio: "ignore" });
+      const cmd = process.platform === "win32" ? "where" : "which";
+      execFileSync(cmd, [tool], { stdio: "ignore" });
       return { ...client, detected: true, configured: false };
     } catch {}
   }
@@ -103,9 +96,5 @@ export async function detectClient(client: ClientConfig, scope?: "global" | "pro
 }
 
 export async function detectAllClients(scope?: "global" | "project"): Promise<DetectedClient[]> {
-  const results: DetectedClient[] = [];
-  for (const client of ALL_CLIENTS) {
-    results.push(await detectClient(client, scope));
-  }
-  return results;
+  return Promise.all(ALL_CLIENTS.map((client) => detectClient(client, scope)));
 }

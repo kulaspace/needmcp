@@ -1,12 +1,16 @@
 import type { ClientConfig } from "./types.js";
 
+function escapeShellArg(arg: string): string {
+  return `'${arg.replace(/'/g, "'\\''")}'`;
+}
+
 export const CLI_CLIENTS: ClientConfig[] = [
   {
     id: "claude-code",
     name: "Claude Code",
     format: "cli",
     buildCommand: (apiKey, mcpUrl) =>
-      `claude mcp add --scope user needmcp -- npx -y @modelcontextprotocol/server-streamable-http ${mcpUrl} --header "X-API-Key: ${apiKey}"`,
+      `claude mcp add --scope user needmcp -- npx -y @modelcontextprotocol/server-streamable-http ${escapeShellArg(mcpUrl)} --header ${escapeShellArg(`X-API-Key: ${apiKey}`)}`,
     detectPaths: ["claude"],
   },
   {
@@ -14,7 +18,7 @@ export const CLI_CLIENTS: ClientConfig[] = [
     name: "Amp",
     format: "cli",
     buildCommand: (apiKey, mcpUrl) =>
-      `amp mcp add needmcp ${mcpUrl} --header "X-API-Key: ${apiKey}"`,
+      `amp mcp add needmcp ${escapeShellArg(mcpUrl)} --header ${escapeShellArg(`X-API-Key: ${apiKey}`)}`,
     detectPaths: ["amp"],
   },
   {
@@ -22,7 +26,7 @@ export const CLI_CLIENTS: ClientConfig[] = [
     name: "Factory (droid)",
     format: "cli",
     buildCommand: (apiKey, mcpUrl) =>
-      `droid mcp add needmcp ${mcpUrl} --type http --header "X-API-Key: ${apiKey}"`,
+      `droid mcp add needmcp ${escapeShellArg(mcpUrl)} --type http --header ${escapeShellArg(`X-API-Key: ${apiKey}`)}`,
     detectPaths: ["droid"],
   },
   {
@@ -30,7 +34,7 @@ export const CLI_CLIENTS: ClientConfig[] = [
     name: "Qwen Code",
     format: "cli",
     buildCommand: (apiKey, mcpUrl) =>
-      `qwen mcp add --transport http needmcp ${mcpUrl} --header "X-API-Key: ${apiKey}"`,
+      `qwen mcp add --transport http needmcp ${escapeShellArg(mcpUrl)} --header ${escapeShellArg(`X-API-Key: ${apiKey}`)}`,
     detectPaths: ["qwen"],
   },
 ];

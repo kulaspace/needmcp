@@ -1,4 +1,5 @@
 import type { ClientConfig } from "./types.js";
+import { DEFAULT_MCP_URL } from "../constants.js";
 
 export const UI_CLIENTS: ClientConfig[] = [
   {
@@ -7,7 +8,7 @@ export const UI_CLIENTS: ClientConfig[] = [
     format: "ui",
     instructions: `1. Open Amazon Q Developer CLI configuration file
 2. Add to mcpServers:
-   "needmcp": { "url": "https://needmcp.com/mcp", "headers": { "X-API-Key": "YOUR_API_KEY" } }
+   "needmcp": { "url": "${DEFAULT_MCP_URL}", "headers": { "X-API-Key": "YOUR_API_KEY" } }
 3. Save and restart`,
   },
   {
@@ -17,7 +18,7 @@ export const UI_CLIENTS: ClientConfig[] = [
     instructions: `1. In Augment Code, click hamburger menu → Settings
 2. Navigate to Tools section
 3. Click + Add MCP
-4. URL: https://needmcp.com/mcp
+4. URL: ${DEFAULT_MCP_URL}
 5. Add header: X-API-Key = YOUR_API_KEY
 6. Name: NeedMCP, then click Add`,
   },
@@ -27,7 +28,7 @@ export const UI_CLIENTS: ClientConfig[] = [
     format: "ui",
     instructions: `1. Open BoltAI Settings → Plugins
 2. Enter this JSON:
-   { "mcpServers": { "needmcp": { "url": "https://needmcp.com/mcp", "headers": { "X-API-Key": "YOUR_API_KEY" } } } }
+   { "mcpServers": { "needmcp": { "url": "${DEFAULT_MCP_URL}", "headers": { "X-API-Key": "YOUR_API_KEY" } } } }
 3. Save and restart BoltAI`,
   },
   {
@@ -45,7 +46,7 @@ export const UI_CLIENTS: ClientConfig[] = [
     instructions: `1. Go to Settings → Apps → Advanced settings → enable Developer Mode
 2. Go to Settings → Apps → Create App
 3. Name: NeedMCP, Description: Production-ready UI components
-4. MCP Server URL: https://needmcp.com/mcp
+4. MCP Server URL: ${DEFAULT_MCP_URL}
 5. Header: X-API-Key = YOUR_API_KEY
 6. Save, then start chat with "use NeedMCP"`,
   },
@@ -56,7 +57,7 @@ export const UI_CLIENTS: ClientConfig[] = [
     instructions: `1. Open Cline → hamburger menu → MCP Servers
 2. Choose Remote Servers tab → Edit Configuration
 3. Add to mcpServers:
-   { "needmcp": { "url": "https://needmcp.com/mcp", "type": "streamableHttp", "headers": { "X-API-Key": "YOUR_API_KEY" } } }
+   { "needmcp": { "url": "${DEFAULT_MCP_URL}", "type": "streamableHttp", "headers": { "X-API-Key": "YOUR_API_KEY" } } }
 4. Save and restart`,
   },
   {
@@ -65,7 +66,7 @@ export const UI_CLIENTS: ClientConfig[] = [
     format: "ui",
     instructions: `1. Go to GitHub → Settings → Copilot → Coding agent → MCP configuration
 2. Add this JSON:
-   { "mcpServers": { "needmcp": { "type": "http", "url": "https://needmcp.com/mcp", "headers": { "X-API-Key": "YOUR_API_KEY" } } } }
+   { "mcpServers": { "needmcp": { "type": "http", "url": "${DEFAULT_MCP_URL}", "headers": { "X-API-Key": "YOUR_API_KEY" } } } }
 3. Save`,
   },
   {
@@ -82,7 +83,7 @@ export const UI_CLIENTS: ClientConfig[] = [
     format: "ui",
     instructions: `1. Open your Antigravity MCP configuration file
 2. Add to mcpServers:
-   { "needmcp": { "serverUrl": "https://needmcp.com/mcp", "headers": { "X-API-Key": "YOUR_API_KEY" } } }
+   { "needmcp": { "serverUrl": "${DEFAULT_MCP_URL}", "headers": { "X-API-Key": "YOUR_API_KEY" } } }
 3. Save`,
   },
   {
@@ -92,7 +93,7 @@ export const UI_CLIENTS: ClientConfig[] = [
     instructions: `1. In JetBrains IDE: Settings → Tools → AI Assistant → Model Context Protocol (MCP)
 2. Click + Add → HTTP tab
 3. Paste this JSON:
-   { "mcpServers": { "needmcp": { "url": "https://needmcp.com/mcp", "headers": { "X-API-Key": "YOUR_API_KEY" } } } }
+   { "mcpServers": { "needmcp": { "url": "${DEFAULT_MCP_URL}", "headers": { "X-API-Key": "YOUR_API_KEY" } } } }
 4. Apply and OK`,
   },
   {
@@ -102,7 +103,7 @@ export const UI_CLIENTS: ClientConfig[] = [
     instructions: `1. Open Kiro → Kiro → MCP Servers
 2. Click + Add
 3. Paste this JSON:
-   { "mcpServers": { "needmcp": { "url": "https://needmcp.com/mcp", "headers": { "X-API-Key": "YOUR_API_KEY" } } } }
+   { "mcpServers": { "needmcp": { "url": "${DEFAULT_MCP_URL}", "headers": { "X-API-Key": "YOUR_API_KEY" } } } }
 4. Save`,
   },
   {
@@ -112,7 +113,7 @@ export const UI_CLIENTS: ClientConfig[] = [
     instructions: `1. Open LM Studio → AI Chat → Settings (gear icon)
 2. Click Edit mcp.json or Add Server
 3. Add to mcpServers:
-   { "needmcp": { "url": "https://needmcp.com/mcp", "headers": { "X-API-Key": "YOUR_API_KEY" } } }
+   { "needmcp": { "url": "${DEFAULT_MCP_URL}", "headers": { "X-API-Key": "YOUR_API_KEY" } } }
 4. Save`,
   },
   {
@@ -123,7 +124,7 @@ export const UI_CLIENTS: ClientConfig[] = [
 2. Click Add Connector → Advanced setup
 3. Server Name: NeedMCP
 4. Paste this JSON:
-   { "url": "https://needmcp.com/mcp", "headers": { "X-API-Key": "YOUR_API_KEY" } }
+   { "url": "${DEFAULT_MCP_URL}", "headers": { "X-API-Key": "YOUR_API_KEY" } }
 5. Save`,
   },
   {
@@ -133,7 +134,7 @@ export const UI_CLIENTS: ClientConfig[] = [
     instructions: `1. Open Qodo Gen chat panel in your IDE
 2. Click "Connect more tools" → + Add new MCP
 3. Paste this JSON:
-   { "mcpServers": { "needmcp": { "url": "https://needmcp.com/mcp", "headers": { "X-API-Key": "YOUR_API_KEY" } } } }
+   { "mcpServers": { "needmcp": { "url": "${DEFAULT_MCP_URL}", "headers": { "X-API-Key": "YOUR_API_KEY" } } } }
 4. Save`,
   },
   {
@@ -142,7 +143,7 @@ export const UI_CLIENTS: ClientConfig[] = [
     format: "ui",
     instructions: `1. Open Roo Code MCP configuration file
 2. Add to mcpServers:
-   { "needmcp": { "type": "streamable-http", "url": "https://needmcp.com/mcp", "headers": { "X-API-Key": "YOUR_API_KEY" } } }
+   { "needmcp": { "type": "streamable-http", "url": "${DEFAULT_MCP_URL}", "headers": { "X-API-Key": "YOUR_API_KEY" } } }
 3. Save and restart`,
   },
   {
@@ -151,7 +152,7 @@ export const UI_CLIENTS: ClientConfig[] = [
     format: "ui",
     instructions: `1. Run: acli rovodev mcp
 2. In the editor, add to mcpServers:
-   { "needmcp": { "url": "https://needmcp.com/mcp", "headers": { "X-API-Key": "YOUR_API_KEY" } } }
+   { "needmcp": { "url": "${DEFAULT_MCP_URL}", "headers": { "X-API-Key": "YOUR_API_KEY" } } }
 3. Save and close`,
   },
   {
@@ -169,7 +170,7 @@ export const UI_CLIENTS: ClientConfig[] = [
     format: "ui",
     instructions: `1. Open Trae → Model Context Protocol settings → "Add manually"
 2. Paste this JSON:
-   { "mcpServers": { "needmcp": { "url": "https://needmcp.com/mcp", "headers": { "X-API-Key": "YOUR_API_KEY" } } } }
+   { "mcpServers": { "needmcp": { "url": "${DEFAULT_MCP_URL}", "headers": { "X-API-Key": "YOUR_API_KEY" } } } }
 3. Save`,
   },
 ];

@@ -1,5 +1,6 @@
-import { access, readFile, writeFile, mkdir } from "node:fs/promises";
+import { access, readFile, writeFile as fsWriteFile, rename, mkdir } from "node:fs/promises";
 import { dirname } from "node:path";
+import { parse, stringify } from "smol-toml";
 
 export function stripJsonComments(text: string): string {
   let result = "";
@@ -23,7 +24,7 @@ export function stripJsonComments(text: string): string {
       result += text[i++];
     }
   }
-  return result;
+  return result.replace(/,(\s*[}\]])/g, "$1");
 }
 
 export async function readJsonConfig(filePath: string): Promise<Record<string, unknown>> {
@@ -37,7 +38,12 @@ export async function readJsonConfig(filePath: string): Promise<Record<string, u
   raw = raw.trim();
   if (!raw) return {};
 
-  return JSON.parse(stripJsonComments(raw)) as Record<string, unknown>;
+  try {
+    return JSON.parse(stripJsonComments(raw)) as Record<string, unknown>;
+  } catch (e) {
+    console.warn(`Warning: Invalid JSON in ${filePath}, treating as empty`);
+    return {};
+  }
 }
 
 export function mergeServerEntry(
@@ -61,12 +67,18 @@ export function mergeServerEntry(
   };
 }
 
+export async function atomicWrite(filePath: string, content: string): Promise<void> {
+  await mkdir(dirname(filePath), { recursive: true });
+  const tmpPath = filePath + ".tmp";
+  await fsWriteFile(tmpPath, content, "utf-8");
+  await rename(tmpPath, filePath);
+}
+
 export async function writeJsonConfig(
   filePath: string,
   config: Record<string, unknown>
 ): Promise<void> {
-  await mkdir(dirname(filePath), { recursive: true });
-  await writeFile(filePath, JSON.stringify(config, null, 2) + "\n", "utf-8");
+  await atomicWrite(filePath, JSON.stringify(config, null, 2) + "\n");
 }
 
 export async function resolveMcpPath(candidates: string[]): Promise<string | null> {
@@ -76,27 +88,29 @@ export async function resolveMcpPath(candidates: string[]): Promise<string | nul
       return candidate;
     } catch {}
   }
-  return candidates.length > 0 ? candidates[0] : null;
+  return null;
 }
 
 export function buildTomlBlock(serverName: string, entry: Record<string, unknown>): string {
-  const lines: string[] = [`[mcp_servers.${serverName}]`];
+  const section: Record<string, unknown> = {};
   const headers = entry.headers as Record<string, string> | undefined;
 
   for (const [key, value] of Object.entries(entry)) {
     if (key === "headers") continue;
-    lines.push(`${key} = ${JSON.stringify(value)}`);
+    section[key] = value;
   }
 
   if (headers && Object.keys(headers).length > 0) {
-    lines.push("");
-    lines.push(`[mcp_servers.${serverName}.http_headers]`);
-    for (const [key, value] of Object.entries(headers)) {
-      lines.push(`${key} = ${JSON.stringify(value)}`);
-    }
+    section.http_headers = headers;
   }
 
-  return lines.join("\n") + "\n";
+  const full: Record<string, unknown> = {
+    mcp_servers: {
+      [serverName]: section,
+    },
+  };
+
+  return stringify(full);
 }
 
 export async function appendTomlServer(
@@ -104,48 +118,27 @@ export async function appendTomlServer(
   serverName: string,
   entry: Record<string, unknown>
 ): Promise<{ alreadyExists: boolean }> {
-  const block = buildTomlBlock(serverName, entry);
-
-  let existing = "";
+  let parsed: Record<string, unknown> = {};
   try {
-    existing = await readFile(filePath, "utf-8");
+    const raw = await readFile(filePath, "utf-8");
+    parsed = parse(raw) as Record<string, unknown>;
   } catch {}
 
-  const sectionHeader = `[mcp_servers.${serverName}]`;
-  const alreadyExists = existing.includes(sectionHeader);
+  const mcpServers = (parsed.mcp_servers as Record<string, Record<string, unknown>>) ?? {};
+  const alreadyExists = serverName in mcpServers;
 
-  if (alreadyExists) {
-    const subPrefix = `[mcp_servers.${serverName}.`;
-    const startIdx = existing.indexOf(sectionHeader);
-    const rest = existing.slice(startIdx + sectionHeader.length);
-
-    let endOffset = rest.length;
-    const re = /^\[/gm;
-    let m: RegExpExecArray | null;
-    while ((m = re.exec(rest)) !== null) {
-      const lineEnd = rest.indexOf("\n", m.index);
-      const line = rest.slice(m.index, lineEnd === -1 ? undefined : lineEnd);
-      if (!line.startsWith(subPrefix)) {
-        endOffset = m.index;
-        break;
-      }
-    }
-
-    const rawBefore = existing.slice(0, startIdx).replace(/\n+$/, "");
-    const rawAfter = existing
-      .slice(startIdx + sectionHeader.length + endOffset)
-      .replace(/^\n+/, "");
-    const before = rawBefore.length > 0 ? rawBefore + "\n\n" : "";
-    const after = rawAfter.length > 0 ? "\n" + rawAfter : "";
-    const content = before + block + after;
-    await mkdir(dirname(filePath), { recursive: true });
-    await writeFile(filePath, content, "utf-8");
-  } else {
-    const separator =
-      existing.length > 0 && !existing.endsWith("\n") ? "\n\n" : existing.length > 0 ? "\n" : "";
-    await mkdir(dirname(filePath), { recursive: true });
-    await writeFile(filePath, existing + separator + block, "utf-8");
+  const serverEntry: Record<string, unknown> = {};
+  const headers = entry.headers as Record<string, string> | undefined;
+  for (const [key, value] of Object.entries(entry)) {
+    if (key === "headers") continue;
+    serverEntry[key] = value;
   }
+  if (headers && Object.keys(headers).length > 0) {
+    serverEntry.http_headers = headers;
+  }
+
+  const newMcpServers = { ...mcpServers, [serverName]: serverEntry };
+  await atomicWrite(filePath, stringify({ ...parsed, mcp_servers: newMcpServers }));
 
   return { alreadyExists };
 }
@@ -181,39 +174,29 @@ export async function removeTomlServer(
   filePath: string,
   serverName: string
 ): Promise<{ removed: boolean }> {
-  let existing = "";
+  let parsed: Record<string, unknown> = {};
   try {
-    existing = await readFile(filePath, "utf-8");
+    const raw = await readFile(filePath, "utf-8");
+    parsed = parse(raw) as Record<string, unknown>;
   } catch {
     return { removed: false };
   }
 
-  const sectionHeader = `[mcp_servers.${serverName}]`;
-  const startIdx = existing.indexOf(sectionHeader);
-  if (startIdx === -1) {
+  const mcpServers = parsed.mcp_servers as Record<string, unknown> | undefined;
+  if (!mcpServers || !(serverName in mcpServers)) {
     return { removed: false };
   }
 
-  const subPrefix = `[mcp_servers.${serverName}.`;
-  const rest = existing.slice(startIdx + sectionHeader.length);
+  const newMcpServers = { ...mcpServers };
+  delete newMcpServers[serverName];
 
-  let endOffset = rest.length;
-  const re = /^\[/gm;
-  let m: RegExpExecArray | null;
-  while ((m = re.exec(rest)) !== null) {
-    const lineEnd = rest.indexOf("\n", m.index);
-    const line = rest.slice(m.index, lineEnd === -1 ? undefined : lineEnd);
-    if (!line.startsWith(subPrefix)) {
-      endOffset = m.index;
-      break;
-    }
+  const newParsed = { ...parsed };
+  if (Object.keys(newMcpServers).length === 0) {
+    delete newParsed.mcp_servers;
+  } else {
+    newParsed.mcp_servers = newMcpServers;
   }
 
-  const rawBefore = existing.slice(0, startIdx).replace(/\n+$/, "");
-  const rawAfter = existing.slice(startIdx + sectionHeader.length + endOffset).replace(/^\n+/, "");
-  const content = [rawBefore, rawAfter].filter(Boolean).join("\n\n");
-
-  await mkdir(dirname(filePath), { recursive: true });
-  await writeFile(filePath, content.length > 0 ? `${content}\n` : "", "utf-8");
+  await atomicWrite(filePath, stringify(newParsed));
   return { removed: true };
 }
