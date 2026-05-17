@@ -139,6 +139,18 @@ export const JSON_CLIENTS: ClientConfig[] = [
     }),
   },
   {
+    id: "kiro",
+    name: "Kiro",
+    format: "json",
+    configKey: "mcpServers",
+    globalPaths: [join(home, ".kiro", "settings", "mcp.json")],
+    projectPaths: [join(".kiro", "settings", "mcp.json")],
+    buildEntry: (apiKey, mcpUrl) => ({
+      url: mcpUrl,
+      headers: { "X-API-Key": apiKey },
+    }),
+  },
+  {
     id: "kilo-code",
     name: "Kilo Code",
     format: "json",
@@ -173,6 +185,17 @@ export const JSON_CLIENTS: ClientConfig[] = [
     buildEntry: (apiKey, mcpUrl) => ({
       type: "http",
       url: mcpUrl,
+      headers: { "X-API-Key": apiKey },
+    }),
+  },
+  {
+    id: "google-antigravity",
+    name: "Google Antigravity",
+    format: "json",
+    configKey: "mcpServers",
+    globalPaths: [join(home, ".gemini", "antigravity", "mcp_config.json")],
+    buildEntry: (apiKey, mcpUrl) => ({
+      serverUrl: mcpUrl,
       headers: { "X-API-Key": apiKey },
     }),
   },

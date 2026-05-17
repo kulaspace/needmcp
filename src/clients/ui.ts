@@ -78,15 +78,6 @@ export const UI_CLIENTS: ClientConfig[] = [
 3. Configure your agent to connect to NeedMCP server`,
   },
   {
-    id: "google-antigravity",
-    name: "Google Antigravity",
-    format: "ui",
-    instructions: `1. Open your Antigravity MCP configuration file
-2. Add to mcpServers:
-   { "needmcp": { "serverUrl": "${DEFAULT_MCP_URL}", "headers": { "X-API-Key": "YOUR_API_KEY" } } }
-3. Save`,
-  },
-  {
     id: "jetbrains",
     name: "JetBrains AI Assistant",
     format: "ui",
@@ -95,16 +86,6 @@ export const UI_CLIENTS: ClientConfig[] = [
 3. Paste this JSON:
    { "mcpServers": { "needmcp": { "url": "${DEFAULT_MCP_URL}", "headers": { "X-API-Key": "YOUR_API_KEY" } } } }
 4. Apply and OK`,
-  },
-  {
-    id: "kiro",
-    name: "Kiro",
-    format: "ui",
-    instructions: `1. Open Kiro → Kiro → MCP Servers
-2. Click + Add
-3. Paste this JSON:
-   { "mcpServers": { "needmcp": { "url": "${DEFAULT_MCP_URL}", "headers": { "X-API-Key": "YOUR_API_KEY" } } } }
-4. Save`,
   },
   {
     id: "lm-studio",

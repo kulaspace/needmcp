@@ -9,6 +9,13 @@ import type { ClientConfig, DetectedClient } from "./clients/index.js";
 import { CliError } from "./errors.js";
 import { validateApiKey } from "./validation.js";
 
+function getAvailableScopes(client: ClientConfig): ("global" | "project")[] {
+  const scopes: ("global" | "project")[] = [];
+  if (client.globalPaths?.length) scopes.push("global");
+  if (client.projectPaths?.length) scopes.push("project");
+  return scopes;
+}
+
 function statusIcon(dc: DetectedClient): string {
   if (dc.configured) return pc.green("●");
   if (dc.detected) return pc.yellow("▲");
@@ -214,25 +221,35 @@ export async function runSetup(providedKey?: string): Promise<void> {
 
   const clientId = selected;
 
-  const scope = await select({
-    message: "Config scope:",
-    options: [
-      { value: "global" as const, label: "Global", hint: "Install system-wide" },
-      { value: "project" as const, label: "Project", hint: "Install for current project only" },
-    ],
-  });
+  const client = ALL_CLIENTS.find((c) => c.id === clientId);
+  if (!client) {
+    cancel("Client not found");
+    throw new CliError("Client not found");
+  }
 
-  if (isCancel(scope)) {
-    cancel("Setup cancelled");
-    throw new CliError("Setup cancelled");
+  const scopes = getAvailableScopes(client);
+  let scope: "global" | "project";
+  if (scopes.length === 1) {
+    scope = scopes[0];
+  } else {
+    const selectedScope = await select({
+      message: "Config scope:",
+      options: [
+        { value: "global" as const, label: "Global", hint: "Install system-wide" },
+        { value: "project" as const, label: "Project", hint: "Install for current project only" },
+      ],
+    });
+    if (isCancel(selectedScope)) {
+      cancel("Setup cancelled");
+      throw new CliError("Setup cancelled");
+    }
+    scope = selectedScope;
   }
 
   outro(`Setting up ${pc.cyan(clientId)} (${scope})...\n`);
 
   const results: SetupResult[] = [];
 
-  const client = ALL_CLIENTS.find((c) => c.id === clientId);
-  if (client) {
     const label = `  ${client.name}...`;
     process.stdout.write(label);
 
@@ -261,7 +278,6 @@ export async function runSetup(providedKey?: string): Promise<void> {
         message: "Unexpected error",
       });
     }
-  }
 
   const successCount = results.filter((r) => r.success).length;
   const failCount = results.filter((r) => !r.success).length;
@@ -373,40 +389,49 @@ export async function runUninstall(): Promise<void> {
 
   const clientId = selected;
 
-  const scope = await select({
-    message: "Config scope:",
-    options: [
-      { value: "global" as const, label: "Global", hint: "Remove from system-wide config" },
-      { value: "project" as const, label: "Project", hint: "Remove from current project only" },
-    ],
-  });
+  const client = ALL_CLIENTS.find((c) => c.id === clientId);
+  if (!client) {
+    cancel("Client not found");
+    throw new CliError("Client not found");
+  }
 
-  if (isCancel(scope)) {
-    cancel("Remove cancelled");
-    throw new CliError("Remove cancelled");
+  const scopes = getAvailableScopes(client);
+  let scope: "global" | "project";
+  if (scopes.length === 1) {
+    scope = scopes[0];
+  } else {
+    const selectedScope = await select({
+      message: "Config scope:",
+      options: [
+        { value: "global" as const, label: "Global", hint: "Remove from system-wide config" },
+        { value: "project" as const, label: "Project", hint: "Remove from current project only" },
+      ],
+    });
+    if (isCancel(selectedScope)) {
+      cancel("Remove cancelled");
+      throw new CliError("Remove cancelled");
+    }
+    scope = selectedScope;
   }
 
   outro(`Removing from ${pc.cyan(clientId)} (${scope})...\n`);
 
   const results: SetupResult[] = [];
 
-  const client = ALL_CLIENTS.find((c) => c.id === clientId);
-  if (client) {
-    process.stdout.write(`  ${client.name}...`);
+  process.stdout.write(`  ${client.name}...`);
 
-    try {
-      const result = await removeClient(client, scope);
-      results.push(result);
+  try {
+    const result = await removeClient(client, scope);
+    results.push(result);
 
-      if (result.success) {
-        process.stdout.write(` ${pc.green("✔")} ${result.message}\n`);
-      } else {
-        process.stdout.write(` ${pc.red("✖")} ${result.message}\n`);
-      }
-    } catch (err) {
-      process.stdout.write(` ${pc.red("✖")} ${err instanceof Error ? err.message : String(err)}\n`);
-      results.push({ clientId: client.id, clientName: client.name, success: false, message: "Unexpected error" });
+    if (result.success) {
+      process.stdout.write(` ${pc.green("✔")} ${result.message}\n`);
+    } else {
+      process.stdout.write(` ${pc.red("✖")} ${result.message}\n`);
     }
+  } catch (err) {
+    process.stdout.write(` ${pc.red("✖")} ${err instanceof Error ? err.message : String(err)}\n`);
+    results.push({ clientId: client.id, clientName: client.name, success: false, message: "Unexpected error" });
   }
 
   const successCount = results.filter((r) => r.success).length;
