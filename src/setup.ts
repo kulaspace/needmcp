@@ -47,6 +47,7 @@ async function ensureApiKey(providedKey?: string): Promise<string> {
 
   const key = await text({
     message: "Enter your NeedMCP API key:",
+    placeholder: "sk-need-xxx",
     validate: (v) => {
       if (!v) return "API key is required";
       if (v.length < 10) return "API key seems too short";
