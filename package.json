@@ -1,6 +1,6 @@
 {
   "name": "needmcp",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "Setup NeedMCP MCP server for AI coding assistants",
   "type": "module",
   "main": "./dist/cli.mjs",
