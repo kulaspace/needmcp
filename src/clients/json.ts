@@ -199,4 +199,15 @@ export const JSON_CLIENTS: ClientConfig[] = [
       headers: { "X-API-Key": apiKey },
     }),
   },
+  {
+    id: "trae",
+    name: "Trae",
+    format: "json",
+    configKey: "mcpServers",
+    projectPaths: [join(".trae", "mcp.json")],
+    buildEntry: (apiKey, mcpUrl) => ({
+      url: mcpUrl,
+      headers: { "X-API-Key": apiKey },
+    }),
+  },
 ];

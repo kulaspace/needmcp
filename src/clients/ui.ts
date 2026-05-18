@@ -145,13 +145,4 @@ export const UI_CLIENTS: ClientConfig[] = [
    Replace <YOUR_SMITHERY_KEY> with your Smithery key
 2. Get your key at: https://smithery.ai/server/needmcp`,
   },
-  {
-    id: "trae",
-    name: "Trae",
-    format: "ui",
-    instructions: `1. Open Trae → Model Context Protocol settings → "Add manually"
-2. Paste this JSON:
-   { "mcpServers": { "needmcp": { "url": "${DEFAULT_MCP_URL}", "headers": { "X-API-Key": "YOUR_API_KEY" } } } }
-3. Save`,
-  },
 ];
