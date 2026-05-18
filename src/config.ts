@@ -1,12 +1,13 @@
 import { readFile, mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { homedir } from "node:os";
-import { DEFAULT_MCP_URL } from "./constants.js";
+import { DEFAULT_BASE_URL, DEFAULT_MCP_URL } from "./constants.js";
 import { atomicWrite } from "./mcp-writer.js";
 
 export interface NeedMcpConfig {
   apiKey?: string;
   mcpUrl?: string;
+  baseUrl?: string;
 }
 
 const CONFIG_DIR = join(homedir(), ".needmcp");
@@ -36,4 +37,8 @@ export async function saveConfig(config: NeedMcpConfig): Promise<void> {
 
 export function resolveMcpUrl(config: NeedMcpConfig): string {
   return process.env.NEEDMCP_MCP_URL || config.mcpUrl || DEFAULT_MCP_URL;
+}
+
+export function resolveBaseUrl(config: NeedMcpConfig): string {
+  return process.env.NEEDMCP_BASE_URL || config.baseUrl || DEFAULT_BASE_URL;
 }
