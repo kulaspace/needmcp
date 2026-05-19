@@ -37,10 +37,11 @@ export const JSON_CLIENTS: ClientConfig[] = [
     configKey: "mcpServers",
     globalPaths: [join(home, ".cursor", "mcp.json")],
     projectPaths: [join(".cursor", "mcp.json")],
-    buildEntry: (apiKey, mcpUrl) => ({
-      url: mcpUrl,
-      headers: { "X-API-Key": apiKey },
-    }),
+    buildEntry: (apiKey, mcpUrl) => {
+      const e: Record<string, unknown> = { url: mcpUrl };
+      if (apiKey) e.headers = { "X-API-Key": apiKey };
+      return e;
+    },
   },
   {
     id: "claude-desktop",
@@ -48,10 +49,11 @@ export const JSON_CLIENTS: ClientConfig[] = [
     format: "json",
     configKey: "mcpServers",
     globalPaths: [claudeDesktopPath()],
-    buildEntry: (apiKey, mcpUrl) => ({
-      url: mcpUrl,
-      headers: { "X-API-Key": apiKey },
-    }),
+    buildEntry: (apiKey, mcpUrl) => {
+      const e: Record<string, unknown> = { url: mcpUrl };
+      if (apiKey) e.headers = { "X-API-Key": apiKey };
+      return e;
+    },
   },
   {
     id: "windsurf",
@@ -59,10 +61,11 @@ export const JSON_CLIENTS: ClientConfig[] = [
     format: "json",
     configKey: "mcpServers",
     globalPaths: [join(home, ".codeium", "windsurf", "mcp_config.json")],
-    buildEntry: (apiKey, mcpUrl) => ({
-      serverUrl: mcpUrl,
-      headers: { "X-API-Key": apiKey },
-    }),
+    buildEntry: (apiKey, mcpUrl) => {
+      const e: Record<string, unknown> = { serverUrl: mcpUrl };
+      if (apiKey) e.headers = { "X-API-Key": apiKey };
+      return e;
+    },
   },
   {
     id: "zed",
@@ -72,10 +75,11 @@ export const JSON_CLIENTS: ClientConfig[] = [
     configKey: "context_servers",
     serverName: "NeedMCP",
     globalPaths: zedSettingsPath(),
-    buildEntry: (apiKey, mcpUrl) => ({
-      url: mcpUrl,
-      headers: { "X-API-Key": apiKey },
-    }),
+    buildEntry: (apiKey, mcpUrl) => {
+      const e: Record<string, unknown> = { url: mcpUrl };
+      if (apiKey) e.headers = { "X-API-Key": apiKey };
+      return e;
+    },
   },
   {
     id: "gemini-cli",
@@ -84,13 +88,14 @@ export const JSON_CLIENTS: ClientConfig[] = [
     configKey: "mcpServers",
     globalPaths: [join(home, ".gemini", "settings.json")],
     projectPaths: [join(".gemini", "settings.json")],
-    buildEntry: (apiKey, mcpUrl) => ({
-      httpUrl: mcpUrl,
-      headers: {
+    buildEntry: (apiKey, mcpUrl) => {
+      const e: Record<string, unknown> = { httpUrl: mcpUrl };
+      if (apiKey) e.headers = {
         "X-API-Key": apiKey,
         Accept: "application/json, text/event-stream",
-      },
-    }),
+      };
+      return e;
+    },
   },
   {
     id: "opencode",
@@ -107,12 +112,11 @@ export const JSON_CLIENTS: ClientConfig[] = [
       ".opencode.json",
       ".opencode.jsonc",
     ],
-    buildEntry: (apiKey, mcpUrl) => ({
-      type: "remote",
-      url: mcpUrl,
-      headers: { "X-API-Key": apiKey },
-      enabled: true,
-    }),
+    buildEntry: (apiKey, mcpUrl) => {
+      const e: Record<string, unknown> = { type: "remote", url: mcpUrl, enabled: true };
+      if (apiKey) e.headers = { "X-API-Key": apiKey };
+      return e;
+    },
   },
   {
     id: "copilot-cli",
@@ -120,11 +124,11 @@ export const JSON_CLIENTS: ClientConfig[] = [
     format: "json",
     configKey: "mcpServers",
     globalPaths: [join(home, ".copilot", "mcp-config.json")],
-    buildEntry: (apiKey, mcpUrl) => ({
-      type: "http",
-      url: mcpUrl,
-      headers: { "X-API-Key": apiKey },
-    }),
+    buildEntry: (apiKey, mcpUrl) => {
+      const e: Record<string, unknown> = { type: "http", url: mcpUrl };
+      if (apiKey) e.headers = { "X-API-Key": apiKey };
+      return e;
+    },
   },
   {
     id: "vscode",
@@ -132,11 +136,11 @@ export const JSON_CLIENTS: ClientConfig[] = [
     format: "json",
     configKey: "servers",
     projectPaths: [join(".vscode", "mcp.json")],
-    buildEntry: (apiKey, mcpUrl) => ({
-      type: "http",
-      url: mcpUrl,
-      headers: { "X-API-Key": apiKey },
-    }),
+    buildEntry: (apiKey, mcpUrl) => {
+      const e: Record<string, unknown> = { type: "http", url: mcpUrl };
+      if (apiKey) e.headers = { "X-API-Key": apiKey };
+      return e;
+    },
   },
   {
     id: "kiro",
@@ -145,10 +149,11 @@ export const JSON_CLIENTS: ClientConfig[] = [
     configKey: "mcpServers",
     globalPaths: [join(home, ".kiro", "settings", "mcp.json")],
     projectPaths: [join(".kiro", "settings", "mcp.json")],
-    buildEntry: (apiKey, mcpUrl) => ({
-      url: mcpUrl,
-      headers: { "X-API-Key": apiKey },
-    }),
+    buildEntry: (apiKey, mcpUrl) => {
+      const e: Record<string, unknown> = { url: mcpUrl };
+      if (apiKey) e.headers = { "X-API-Key": apiKey };
+      return e;
+    },
   },
   {
     id: "kilo-code",
@@ -156,13 +161,11 @@ export const JSON_CLIENTS: ClientConfig[] = [
     format: "json",
     configKey: "mcpServers",
     projectPaths: [join(".kilocode", "mcp.json")],
-    buildEntry: (apiKey, mcpUrl) => ({
-      type: "streamable-http",
-      url: mcpUrl,
-      headers: { "X-API-Key": apiKey },
-      alwaysAllow: [],
-      disabled: false,
-    }),
+    buildEntry: (apiKey, mcpUrl) => {
+      const e: Record<string, unknown> = { type: "streamable-http", url: mcpUrl, alwaysAllow: [], disabled: false };
+      if (apiKey) e.headers = { "X-API-Key": apiKey };
+      return e;
+    },
   },
   {
     id: "visual-studio",
@@ -170,11 +173,11 @@ export const JSON_CLIENTS: ClientConfig[] = [
     format: "json",
     configKey: "servers",
     projectPaths: [join(".vs", "mcp.json")],
-    buildEntry: (apiKey, mcpUrl) => ({
-      type: "http",
-      url: mcpUrl,
-      headers: { "X-API-Key": apiKey },
-    }),
+    buildEntry: (apiKey, mcpUrl) => {
+      const e: Record<string, unknown> = { type: "http", url: mcpUrl };
+      if (apiKey) e.headers = { "X-API-Key": apiKey };
+      return e;
+    },
   },
   {
     id: "crush",
@@ -182,11 +185,11 @@ export const JSON_CLIENTS: ClientConfig[] = [
     format: "json",
     configKey: "mcp",
     projectPaths: ["crush.json"],
-    buildEntry: (apiKey, mcpUrl) => ({
-      type: "http",
-      url: mcpUrl,
-      headers: { "X-API-Key": apiKey },
-    }),
+    buildEntry: (apiKey, mcpUrl) => {
+      const e: Record<string, unknown> = { type: "http", url: mcpUrl };
+      if (apiKey) e.headers = { "X-API-Key": apiKey };
+      return e;
+    },
   },
   {
     id: "google-antigravity",
@@ -194,10 +197,11 @@ export const JSON_CLIENTS: ClientConfig[] = [
     format: "json",
     configKey: "mcpServers",
     globalPaths: [join(home, ".gemini", "antigravity", "mcp_config.json")],
-    buildEntry: (apiKey, mcpUrl) => ({
-      serverUrl: mcpUrl,
-      headers: { "X-API-Key": apiKey },
-    }),
+    buildEntry: (apiKey, mcpUrl) => {
+      const e: Record<string, unknown> = { serverUrl: mcpUrl };
+      if (apiKey) e.headers = { "X-API-Key": apiKey };
+      return e;
+    },
   },
   {
     id: "trae",
@@ -205,9 +209,10 @@ export const JSON_CLIENTS: ClientConfig[] = [
     format: "json",
     configKey: "mcpServers",
     projectPaths: [join(".trae", "mcp.json")],
-    buildEntry: (apiKey, mcpUrl) => ({
-      url: mcpUrl,
-      headers: { "X-API-Key": apiKey },
-    }),
+    buildEntry: (apiKey, mcpUrl) => {
+      const e: Record<string, unknown> = { url: mcpUrl };
+      if (apiKey) e.headers = { "X-API-Key": apiKey };
+      return e;
+    },
   },
 ];

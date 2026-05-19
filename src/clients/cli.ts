@@ -9,32 +9,44 @@ export const CLI_CLIENTS: ClientConfig[] = [
     id: "claude-code",
     name: "Claude Code",
     format: "cli",
-    buildCommand: (apiKey, mcpUrl) =>
-      `claude mcp add --scope user needmcp -- npx -y @modelcontextprotocol/server-streamable-http ${escapeShellArg(mcpUrl)} --header ${escapeShellArg(`X-API-Key: ${apiKey}`)}`,
+    buildCommand: (apiKey, mcpUrl) => {
+      let cmd = `claude mcp add --scope user needmcp -- npx -y @modelcontextprotocol/server-streamable-http ${escapeShellArg(mcpUrl)}`;
+      if (apiKey) cmd += ` --header ${escapeShellArg(`X-API-Key: ${apiKey}`)}`;
+      return cmd;
+    },
     detectPaths: ["claude"],
   },
   {
     id: "amp",
     name: "Amp",
     format: "cli",
-    buildCommand: (apiKey, mcpUrl) =>
-      `amp mcp add needmcp ${escapeShellArg(mcpUrl)} --header ${escapeShellArg(`X-API-Key: ${apiKey}`)}`,
+    buildCommand: (apiKey, mcpUrl) => {
+      let cmd = `amp mcp add needmcp ${escapeShellArg(mcpUrl)}`;
+      if (apiKey) cmd += ` --header ${escapeShellArg(`X-API-Key: ${apiKey}`)}`;
+      return cmd;
+    },
     detectPaths: ["amp"],
   },
   {
     id: "factory",
     name: "Factory (droid)",
     format: "cli",
-    buildCommand: (apiKey, mcpUrl) =>
-      `droid mcp add needmcp ${escapeShellArg(mcpUrl)} --type http --header ${escapeShellArg(`X-API-Key: ${apiKey}`)}`,
+    buildCommand: (apiKey, mcpUrl) => {
+      let cmd = `droid mcp add needmcp ${escapeShellArg(mcpUrl)} --type http`;
+      if (apiKey) cmd += ` --header ${escapeShellArg(`X-API-Key: ${apiKey}`)}`;
+      return cmd;
+    },
     detectPaths: ["droid"],
   },
   {
     id: "qwen-code",
     name: "Qwen Code",
     format: "cli",
-    buildCommand: (apiKey, mcpUrl) =>
-      `qwen mcp add --transport http needmcp ${escapeShellArg(mcpUrl)} --header ${escapeShellArg(`X-API-Key: ${apiKey}`)}`,
+    buildCommand: (apiKey, mcpUrl) => {
+      let cmd = `qwen mcp add --transport http needmcp ${escapeShellArg(mcpUrl)}`;
+      if (apiKey) cmd += ` --header ${escapeShellArg(`X-API-Key: ${apiKey}`)}`;
+      return cmd;
+    },
     detectPaths: ["qwen"],
   },
 ];

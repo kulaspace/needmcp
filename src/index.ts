@@ -12,7 +12,7 @@ const program = new Command();
 program
   .name("needmcp")
   .description("NeedMCP CLI — Setup MCP configuration for AI coding assistants")
-  .version("1.1.0")
+  .version("1.2.0")
   .addHelpText(
     "after",
     `

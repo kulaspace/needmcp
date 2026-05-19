@@ -7,8 +7,8 @@ export interface ClientConfig {
   serverName?: string;
   projectPaths?: string[];
   globalPaths?: string[];
-  buildEntry?: (apiKey: string, mcpUrl: string) => Record<string, unknown>;
-  buildCommand?: (apiKey: string, mcpUrl: string) => string;
+  buildEntry?: (apiKey: string | undefined, mcpUrl: string) => Record<string, unknown>;
+  buildCommand?: (apiKey: string | undefined, mcpUrl: string) => string;
   detectPaths?: string[];
   instructions?: string;
 }

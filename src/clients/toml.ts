@@ -11,9 +11,10 @@ export const TOML_CLIENTS: ClientConfig[] = [
     format: "toml",
     globalPaths: [join(home, ".codex", "config.toml")],
     projectPaths: [join(".codex", "config.toml")],
-    buildEntry: (apiKey, mcpUrl) => ({
-      url: mcpUrl,
-      headers: { "X-API-Key": apiKey },
-    }),
+    buildEntry: (apiKey, mcpUrl) => {
+      const e: Record<string, unknown> = { url: mcpUrl };
+      if (apiKey) e.headers = { "X-API-Key": apiKey };
+      return e;
+    },
   },
 ];

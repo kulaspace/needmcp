@@ -33,7 +33,7 @@ function maskKey(k: string): string {
   return k.slice(0, 8) + "..." + k.slice(-4);
 }
 
-async function ensureApiKey(providedKey?: string): Promise<string> {
+async function ensureApiKey(providedKey?: string): Promise<string | undefined> {
   const config = await loadConfig();
 
   if (providedKey) {
@@ -51,7 +51,7 @@ async function ensureApiKey(providedKey?: string): Promise<string> {
   if (config.apiKey) {
     const validationErr = validateApiKey(config.apiKey);
     if (validationErr) {
-      console.warn(pc.yellow(`Stored API key invalid: ${validationErr}. Please enter a new key.`));
+      console.warn(pc.yellow(`Stored API key invalid: ${validationErr}. Please choose an option below.`));
     } else {
       const use = await confirm({
         message: `Use stored API key ${pc.cyan(maskKey(config.apiKey))}?`,
@@ -63,6 +63,21 @@ async function ensureApiKey(providedKey?: string): Promise<string> {
       if (use) return config.apiKey;
     }
   }
+
+  const mode = await select({
+    message: "How would you like to proceed?",
+    options: [
+      { value: "guest", label: "Guest Mode", hint: "Limited to 20 requests" },
+      { value: "apikey", label: "Enter API Key", hint: "More limit, still free" },
+    ],
+  });
+
+  if (isCancel(mode)) {
+    cancel("Setup cancelled");
+    throw new CliError("Setup cancelled");
+  }
+
+  if (mode === "guest") return undefined;
 
   const key = await text({
     message: "Enter your NeedMCP API key:",
@@ -88,7 +103,7 @@ interface SetupResult {
 
 async function setupJsonClient(
   client: ClientConfig,
-  apiKey: string,
+  apiKey: string | undefined,
   mcpUrl: string,
   scope?: "global" | "project"
 ): Promise<SetupResult> {
@@ -121,7 +136,7 @@ async function setupJsonClient(
 
 async function setupTomlClient(
   client: ClientConfig,
-  apiKey: string,
+  apiKey: string | undefined,
   mcpUrl: string,
   scope?: "global" | "project"
 ): Promise<SetupResult> {
@@ -149,7 +164,7 @@ async function setupTomlClient(
 
 async function setupCliClient(
   client: ClientConfig,
-  apiKey: string,
+  apiKey: string | undefined,
   mcpUrl: string
 ): Promise<SetupResult> {
   if (!client.buildCommand) {
@@ -174,7 +189,7 @@ async function setupCliClient(
 
 async function setupClient(
   client: ClientConfig,
-  apiKey: string,
+  apiKey: string | undefined,
   mcpUrl: string,
   scope?: "global" | "project"
 ): Promise<SetupResult> {

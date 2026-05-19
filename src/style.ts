@@ -18,18 +18,15 @@ export async function runStyle(slug: string): Promise<void> {
   intro(pc.bgMagenta(pc.black(" needmcp style set ")));
 
   const config = await loadConfig();
-  if (!config.apiKey) {
-    console.error(pc.red("✖ API key not found after setup."));
-    throw new CliError("API key not found");
-  }
 
   const url = `${resolveBaseUrl(config)}/api/styles/${encodeURIComponent(slug)}/select`;
+  const headers: Record<string, string> = { Accept: "application/json" };
+  if (config.apiKey) {
+    headers["X-API-Key"] = config.apiKey;
+  }
   let response: Response;
   try {
-    response = await fetch(url, {
-      method: "POST",
-      headers: { Accept: "application/json", "X-API-Key": config.apiKey },
-    });
+    response = await fetch(url, { method: "POST", headers });
   } catch (err) {
     console.error(pc.red(`✖ Network error: ${err instanceof Error ? err.message : String(err)}`));
     throw new CliError("Network request failed");
