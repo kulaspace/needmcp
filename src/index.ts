@@ -1,5 +1,7 @@
 #!/usr/bin/env node
 
+declare const __VERSION__: string;
+
 import "dotenv/config";
 import { Command } from "commander";
 import pc from "picocolors";
@@ -12,7 +14,7 @@ const program = new Command();
 program
   .name("needmcp")
   .description("NeedMCP CLI — Setup MCP configuration for AI coding assistants")
-  .version("1.2.0")
+  .version(__VERSION__)
   .addHelpText(
     "after",
     `
