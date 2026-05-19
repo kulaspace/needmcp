@@ -12,7 +12,7 @@ const program = new Command();
 program
   .name("needmcp")
   .description("NeedMCP CLI — Setup MCP configuration for AI coding assistants")
-  .version("1.0.2")
+  .version("1.1.0")
   .addHelpText(
     "after",
     `
@@ -65,9 +65,13 @@ program
     }
   });
 
-program
+const style = program
   .command("style")
-  .description("Activate or deactivate a NeedMCP style")
+  .description("Activate or deactivate a NeedMCP style");
+
+style
+  .command("set")
+  .description("Activate a style by slug")
   .argument("<slug>", "Style slug (e.g., modern-dashboard)")
   .action(async (slug) => {
     try {

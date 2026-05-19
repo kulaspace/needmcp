@@ -15,7 +15,7 @@ export async function runStyle(slug: string): Promise<void> {
     console.log();
   }
 
-  intro(pc.bgMagenta(pc.black(" needmcp style ")));
+  intro(pc.bgMagenta(pc.black(" needmcp style set ")));
 
   const config = await loadConfig();
   if (!config.apiKey) {
