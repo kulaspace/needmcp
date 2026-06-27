@@ -10,7 +10,7 @@ export const CLI_CLIENTS: ClientConfig[] = [
     name: "Claude Code",
     format: "cli",
     buildCommand: (apiKey, mcpUrl) => {
-      let cmd = `claude mcp add --scope user needmcp -- npx -y @modelcontextprotocol/server-streamable-http ${escapeShellArg(mcpUrl)}`;
+      let cmd = `claude mcp add --transport http --scope user needmcp ${escapeShellArg(mcpUrl)}`;
       if (apiKey) cmd += ` --header ${escapeShellArg(`X-API-Key: ${apiKey}`)}`;
       return cmd;
     },

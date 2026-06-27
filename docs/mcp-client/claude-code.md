@@ -12,7 +12,7 @@ Integrate the NeedMCP server with Claude Code to enhance your terminal-based dev
 To connect Claude Code to the NeedMCP server, run the following command in your terminal:
 
 ```sh
-claude mcp add --scope user needmcp -- npx -y @modelcontextprotocol/server-streamable-http https://needmcp.com/mcp --header "X-API-Key: YOUR_API_KEY"
+claude mcp add --transport http --scope user needmcp https://needmcp.com/mcp --header "X-API-Key: YOUR_API_KEY"
 ```
 
 ## Setup Instructions
