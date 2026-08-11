@@ -1,5 +1,8 @@
 import { describe, it, expect } from "vitest";
-import { stripJsonComments, mergeServerEntry, removeServerEntry } from "../mcp-writer.js";
+import { mkdtemp, readFile } from "node:fs/promises";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
+import { stripJsonComments, mergeServerEntry, removeServerEntry, buildTomlBlock, appendTomlServer } from "../mcp-writer.js";
 
 describe("stripJsonComments", () => {
   it("removes single-line comments", () => {
@@ -67,5 +70,69 @@ describe("removeServerEntry", () => {
     const existing = { mcpServers: {} };
     const { removed } = removeServerEntry(existing, "mcpServers", "needmcp");
     expect(removed).toBe(false);
+  });
+});
+
+describe("buildTomlBlock", () => {
+  it("writes http_headers as inline table", () => {
+    const block = buildTomlBlock("needmcp", {
+      url: "https://needmcp.com/mcp",
+      http_headers: { "X-API-Key": "sk-need-xxx" },
+    });
+    expect(block).toContain('[mcp_servers.needmcp]');
+    expect(block).toContain('url = "https://needmcp.com/mcp"');
+    expect(block).toContain('http_headers = { "X-API-Key" = "sk-need-xxx" }');
+    expect(block).not.toContain("[mcp_servers.needmcp.http_headers]");
+  });
+
+  it("supports legacy headers key", () => {
+    const block = buildTomlBlock("needmcp", {
+      url: "https://needmcp.com/mcp",
+      headers: { "X-API-Key": "sk-need-xxx" },
+    });
+    expect(block).toContain('http_headers = { "X-API-Key" = "sk-need-xxx" }');
+  });
+
+  it("omits http_headers in guest mode", () => {
+    const block = buildTomlBlock("needmcp", { url: "https://needmcp.com/mcp" });
+    expect(block).not.toContain("http_headers");
+  });
+});
+
+describe("appendTomlServer", () => {
+  async function tempFile(): Promise<string> {
+    const dir = await mkdtemp(join(tmpdir(), "needmcp-test-"));
+    return join(dir, "config.toml");
+  }
+
+  it("writes http_headers as inline table", async () => {
+    const filePath = await tempFile();
+    await appendTomlServer(filePath, "needmcp", {
+      url: "https://needmcp.com/mcp",
+      http_headers: { "X-API-Key": "sk-need-xxx" },
+    });
+    const raw = await readFile(filePath, "utf-8");
+    expect(raw).toContain('[mcp_servers.needmcp]');
+    expect(raw).toContain('url = "https://needmcp.com/mcp"');
+    expect(raw).toContain('http_headers = { "X-API-Key" = "sk-need-xxx" }');
+    expect(raw).not.toContain("[mcp_servers.needmcp.http_headers]");
+  });
+
+  it("converts existing nested http_headers table to inline table", async () => {
+    const filePath = await tempFile();
+    await appendTomlServer(filePath, "needmcp", {
+      url: "https://needmcp.com/mcp",
+      http_headers: { "X-API-Key": "sk-need-old" },
+    });
+
+    await appendTomlServer(filePath, "needmcp", {
+      url: "https://needmcp.com/mcp",
+      http_headers: { "X-API-Key": "sk-need-new" },
+    });
+
+    const raw = await readFile(filePath, "utf-8");
+    expect(raw).toContain('http_headers = { "X-API-Key" = "sk-need-new" }');
+    expect(raw).not.toContain("[mcp_servers.needmcp.http_headers]");
+    expect(raw).not.toContain("sk-need-old");
   });
 });

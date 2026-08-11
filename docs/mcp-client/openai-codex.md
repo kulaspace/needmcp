@@ -23,7 +23,7 @@ http_headers = { "X-API-Key" = "YOUR_API_KEY" }
 2. Add the `[mcp_servers.needmcp]` section as shown in the **Configuration** block above.
 3. Replace `YOUR_API_KEY` with your actual NeedMCP API key.
 4. **Note:** If you experience startup timeout errors, try increasing the `startup_timeout_sec` setting to `40`.
-5. For more details, refer to the [OpenAI Codex MCP docs](https://developers.openai.com/codex/mcp).
+5. For more details, refer to the [OpenAI Codex MCP docs](https://learn.chatgpt.com/docs/extend/mcp).
 
 ## Style Locking
 

@@ -91,17 +91,42 @@ export async function resolveMcpPath(candidates: string[]): Promise<string | nul
   return null;
 }
 
+function tomlString(value: string): string {
+  // TOML basic strings share the same escaping rules as JSON strings
+  // for the ASCII printable range used in HTTP header values.
+  return JSON.stringify(value);
+}
+
+function formatInlineTable(headers: Record<string, string>): string {
+  const pairs = Object.entries(headers)
+    .map(([key, value]) => `${JSON.stringify(key)} = ${tomlString(value)}`)
+    .join(", ");
+  return `{ ${pairs} }`;
+}
+
+function insertHttpHeaders(
+  toml: string,
+  serverName: string,
+  headers: Record<string, string>
+): string {
+  const escapedName = serverName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const sectionPattern = new RegExp(`^(\\[mcp_servers\\.${escapedName}\\]\\s*)$`, "m");
+  const inline = formatInlineTable(headers);
+  return toml.replace(sectionPattern, `$1\nhttp_headers = ${inline}`);
+}
+
+function extractHttpHeaders(entry: Record<string, unknown>): Record<string, string> | undefined {
+  const headers = (entry.http_headers ?? entry.headers) as Record<string, string> | undefined;
+  return headers && Object.keys(headers).length > 0 ? headers : undefined;
+}
+
 export function buildTomlBlock(serverName: string, entry: Record<string, unknown>): string {
   const section: Record<string, unknown> = {};
-  const headers = entry.headers as Record<string, string> | undefined;
+  const headers = extractHttpHeaders(entry);
 
   for (const [key, value] of Object.entries(entry)) {
-    if (key === "headers") continue;
+    if (key === "headers" || key === "http_headers") continue;
     section[key] = value;
-  }
-
-  if (headers && Object.keys(headers).length > 0) {
-    section.http_headers = headers;
   }
 
   const full: Record<string, unknown> = {
@@ -110,7 +135,12 @@ export function buildTomlBlock(serverName: string, entry: Record<string, unknown
     },
   };
 
-  return stringify(full);
+  let toml = stringify(full);
+  if (headers) {
+    toml = insertHttpHeaders(toml, serverName, headers);
+  }
+
+  return toml;
 }
 
 export async function appendTomlServer(
@@ -128,17 +158,20 @@ export async function appendTomlServer(
   const alreadyExists = serverName in mcpServers;
 
   const serverEntry: Record<string, unknown> = {};
-  const headers = entry.headers as Record<string, string> | undefined;
+  const headers = extractHttpHeaders(entry);
   for (const [key, value] of Object.entries(entry)) {
-    if (key === "headers") continue;
+    if (key === "headers" || key === "http_headers") continue;
     serverEntry[key] = value;
-  }
-  if (headers && Object.keys(headers).length > 0) {
-    serverEntry.http_headers = headers;
   }
 
   const newMcpServers = { ...mcpServers, [serverName]: serverEntry };
-  await atomicWrite(filePath, stringify({ ...parsed, mcp_servers: newMcpServers }));
+  let toml = stringify({ ...parsed, mcp_servers: newMcpServers });
+
+  if (headers) {
+    toml = insertHttpHeaders(toml, serverName, headers);
+  }
+
+  await atomicWrite(filePath, toml);
 
   return { alreadyExists };
 }
