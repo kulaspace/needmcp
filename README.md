@@ -120,4 +120,4 @@ needmcp remove
 
 ## Documentation
 
-Full documentation at [docs.needmcp.com](https://docs.needmcp.com)
+Full documentation at [needmcp.com/docs](https://needmcp.com/docs)
