@@ -48,13 +48,35 @@ Remove the NeedMCP server entry from a client's configuration.
 needmcp remove
 ```
 
-### `needmcp style <slug>`
+### `needmcp style set <slug>`
 
 Activate/lock a design style. If NeedMCP is not yet configured, setup runs automatically first.
 
 ```bash
-needmcp style cream-artisan
+needmcp style set cream-artisan
 ```
+
+### `needmcp design <slug>`
+
+Download a style's design system as `DESIGN.md` in the current directory.
+
+Uses the API key from `~/.needmcp/config.json` (`X-API-Key` header) and respects `NEEDMCP_BASE_URL` if set. Fetches `GET /api/styles/{slug}/designmd`.
+
+```bash
+# Download to ./DESIGN.md
+needmcp design modern-dashboard
+
+# Overwrite without confirmation
+needmcp design modern-dashboard --force
+```
+
+Behavior:
+
+- Saves to `DESIGN.md` in the folder where the CLI is run
+- If `DESIGN.md` already exists, prompts for confirmation (use `--force` / `-f` to skip)
+- `403` — design system is premium (subscribe to access)
+- `404` — style not found
+- `401` — invalid API key (`needmcp setup` to configure)
 
 ### `needmcp --help`
 
@@ -72,7 +94,10 @@ Show installed version.
 needmcp setup
 
 # 3. Lock a design style for your session
-needmcp style cream-artisan
+needmcp style set cream-artisan
+
+# 4. Download design system to ./DESIGN.md
+needmcp design modern-dashboard
 
 # Done! Your AI assistant now has access to NeedMCP components.
 # To remove the configuration later:

@@ -7,6 +7,7 @@ import { Command } from "commander";
 import pc from "picocolors";
 import { runSetup, runUninstall } from "./setup.js";
 import { runStyle } from "./style.js";
+import { runDesign } from "./design.js";
 import { CliError } from "./errors.js";
 
 const program = new Command();
@@ -27,6 +28,9 @@ Examples:
 
   ${pc.dim("# Remove NeedMCP from clients")}
   ${pc.cyan("needmcp remove")}
+
+  ${pc.dim("# Download design system")}
+  ${pc.cyan("needmcp design modern-dashboard")}
 `,
   );
 
@@ -78,6 +82,26 @@ style
   .action(async (slug) => {
     try {
       await runStyle(slug);
+    } catch (err) {
+      if (err instanceof Error && err.name === "ExitPromptError") {
+        process.exit(0);
+      }
+      if (err instanceof CliError) {
+        process.exit(1);
+      }
+      console.error(pc.red("Unexpected error:"), err);
+      process.exit(1);
+    }
+  });
+
+program
+  .command("design")
+  .description("Download a style design system as DESIGN.md")
+  .argument("<slug>", "Style slug (e.g., modern-dashboard)")
+  .option("-f, --force", "Overwrite DESIGN.md without asking")
+  .action(async (slug, options) => {
+    try {
+      await runDesign(slug, { force: options.force });
     } catch (err) {
       if (err instanceof Error && err.name === "ExitPromptError") {
         process.exit(0);
