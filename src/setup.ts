@@ -3,11 +3,14 @@ import pc from "picocolors";
 import { execSync } from "node:child_process";
 import { join } from "node:path";
 import { readJsonConfig, writeJsonConfig, mergeServerEntry, appendTomlServer, removeServerEntry, removeTomlServer } from "./mcp-writer.js";
-import { loadConfig, saveConfig, resolveMcpUrl } from "./config.js";
+import { loadConfig, saveConfig, resolveMcpUrl, resolveBaseUrl } from "./config.js";
 import { ALL_CLIENTS, detectAllClients, resolvePath, resolveClientPaths } from "./clients/index.js";
 import type { ClientConfig, DetectedClient } from "./clients/index.js";
 import { CliError } from "./errors.js";
 import { validateApiKey } from "./validation.js";
+import { loginWithOAuth } from "./oauth.js";
+
+export type AuthMode = "oauth" | "key";
 
 function getAvailableScopes(client: ClientConfig): ("global" | "project")[] {
   const scopes: ("global" | "project")[] = [];
@@ -33,7 +36,43 @@ function maskKey(k: string): string {
   return k.slice(0, 8) + "..." + k.slice(-4);
 }
 
-async function ensureApiKey(providedKey?: string): Promise<string | undefined> {
+async function promptForApiKey(): Promise<string> {
+  const key = await text({
+    message: "Enter your NeedMCP API key:",
+    placeholder: "sk-need-xxx",
+    validate: (v) => validateApiKey(v),
+  });
+
+  if (isCancel(key)) {
+    cancel("Setup cancelled");
+    throw new CliError("Setup cancelled");
+  }
+
+  return key;
+}
+
+async function authenticateWithOAuth(baseUrl: string): Promise<string> {
+  let key: string;
+  try {
+    key = await loginWithOAuth(baseUrl);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error(`  ${pc.red("✖")} OAuth failed: ${msg}`);
+    console.error(pc.dim("  You can re-run `needmcp setup` and choose \"API Key\" instead."));
+    throw new CliError("OAuth authentication failed");
+  }
+
+  const err = validateApiKey(key);
+  if (err) {
+    console.error(`  ${pc.red("✖")} Received key is invalid: ${err}`);
+    throw new CliError("Invalid API key received from OAuth");
+  }
+
+  console.log(`  ${pc.green("✔")} Authenticated as ${pc.cyan(maskKey(key))}`);
+  return key;
+}
+
+async function ensureApiKey(providedKey?: string, authMode?: AuthMode): Promise<string | undefined> {
   const config = await loadConfig();
 
   if (providedKey) {
@@ -46,6 +85,19 @@ async function ensureApiKey(providedKey?: string): Promise<string | undefined> {
       await saveConfig({ ...config, apiKey: providedKey });
     }
     return providedKey;
+  }
+
+  // Explicit auth mode via `--auth <oauth|key>` skips the interactive menu.
+  if (authMode === "oauth") {
+    const key = await authenticateWithOAuth(resolveBaseUrl(config));
+    await saveConfig({ ...config, apiKey: key });
+    return key;
+  }
+
+  if (authMode === "key") {
+    const key = await promptForApiKey();
+    await saveConfig({ ...config, apiKey: key });
+    return key;
   }
 
   if (config.apiKey) {
@@ -65,10 +117,11 @@ async function ensureApiKey(providedKey?: string): Promise<string | undefined> {
   }
 
   const mode = await select({
-    message: "How would you like to proceed?",
+    message: "How would you like to authenticate?",
     options: [
+      { value: "oauth", label: "Login with Browser (OAuth)", hint: `${pc.green("Recommended")} — auto-generates a dedicated key` },
+      { value: "apikey", label: "Enter API Key", hint: "Paste an existing sk-need-xxx key" },
       { value: "guest", label: "Guest Mode", hint: "Limited to 20 requests" },
-      { value: "apikey", label: "Enter API Key", hint: "More limit, still free" },
     ],
   });
 
@@ -79,17 +132,13 @@ async function ensureApiKey(providedKey?: string): Promise<string | undefined> {
 
   if (mode === "guest") return undefined;
 
-  const key = await text({
-    message: "Enter your NeedMCP API key:",
-    placeholder: "sk-need-xxx",
-    validate: (v) => validateApiKey(v),
-  });
-
-  if (isCancel(key)) {
-    cancel("Setup cancelled");
-    throw new CliError("Setup cancelled");
+  if (mode === "oauth") {
+    const key = await authenticateWithOAuth(resolveBaseUrl(config));
+    await saveConfig({ ...config, apiKey: key });
+    return key;
   }
 
+  const key = await promptForApiKey();
   await saveConfig({ ...config, apiKey: key });
   return key;
 }
@@ -205,10 +254,10 @@ async function setupClient(
   }
 }
 
-export async function runSetup(providedKey?: string): Promise<void> {
+export async function runSetup(providedKey?: string, authMode?: AuthMode): Promise<void> {
   intro(pc.bgCyan(pc.black(" needmcp setup ")));
 
-  const apiKey = await ensureApiKey(providedKey);
+  const apiKey = await ensureApiKey(providedKey, authMode);
 
   const config = await loadConfig();
   const mcpUrl = resolveMcpUrl(config);

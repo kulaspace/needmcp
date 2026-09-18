@@ -6,6 +6,7 @@ import "dotenv/config";
 import { Command } from "commander";
 import pc from "picocolors";
 import { runSetup, runUninstall } from "./setup.js";
+import type { AuthMode } from "./setup.js";
 import { runStyle } from "./style.js";
 import { runDesign } from "./design.js";
 import { CliError } from "./errors.js";
@@ -26,6 +27,9 @@ Examples:
   ${pc.dim("# Setup with API key")}
   ${pc.cyan("needmcp setup --key sk-need-xxxx")}
 
+  ${pc.dim("# Setup using browser OAuth (default choice)")}
+  ${pc.cyan("needmcp setup --auth oauth")}
+
   ${pc.dim("# Remove NeedMCP from clients")}
   ${pc.cyan("needmcp remove")}
 
@@ -38,9 +42,19 @@ program
   .command("setup")
   .description("Setup NeedMCP MCP server for your AI clients")
   .option("-k, --key <key>", "NeedMCP API key")
+  .option("-a, --auth <method>", "Auth method: oauth | key")
   .action(async (options) => {
     try {
-      await runSetup(options.key);
+      let authMode: AuthMode | undefined;
+      if (options.auth !== undefined) {
+        const value = String(options.auth).toLowerCase();
+        if (value !== "oauth" && value !== "key") {
+          console.error(pc.red(`Invalid --auth value "${options.auth}". Use "oauth" or "key".`));
+          process.exit(1);
+        }
+        authMode = value;
+      }
+      await runSetup(options.key, authMode);
     } catch (err) {
       if (err instanceof Error && err.name === "ExitPromptError") {
         process.exit(0);
