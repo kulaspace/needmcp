@@ -12,6 +12,11 @@ import { loginWithOAuth } from "./oauth.js";
 
 export type AuthMode = "oauth" | "key";
 
+// Temporary kill-switch for guest mode. Set to `true` to re-enable the
+// "Guest Mode" option in the authentication menu. When `false`, users must
+// authenticate via OAuth or an API key.
+const GUEST_MODE_ENABLED = false;
+
 function getAvailableScopes(client: ClientConfig): ("global" | "project")[] {
   const scopes: ("global" | "project")[] = [];
   if (client.globalPaths?.length) scopes.push("global");
@@ -116,13 +121,17 @@ async function ensureApiKey(providedKey?: string, authMode?: AuthMode): Promise<
     }
   }
 
+  const authOptions = [
+    { value: "oauth", label: "Login with Browser (OAuth)", hint: `${pc.green("Recommended")} — auto-generates a dedicated key` },
+    { value: "apikey", label: "Enter API Key", hint: "Paste an existing sk-need-xxx key" },
+  ];
+  if (GUEST_MODE_ENABLED) {
+    authOptions.push({ value: "guest", label: "Guest Mode", hint: "Limited to 20 requests" });
+  }
+
   const mode = await select({
     message: "How would you like to authenticate?",
-    options: [
-      { value: "oauth", label: "Login with Browser (OAuth)", hint: `${pc.green("Recommended")} — auto-generates a dedicated key` },
-      { value: "apikey", label: "Enter API Key", hint: "Paste an existing sk-need-xxx key" },
-      { value: "guest", label: "Guest Mode", hint: "Limited to 20 requests" },
-    ],
+    options: authOptions,
   });
 
   if (isCancel(mode)) {

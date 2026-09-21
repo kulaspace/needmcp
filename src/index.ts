@@ -55,6 +55,7 @@ program
         authMode = value;
       }
       await runSetup(options.key, authMode);
+      process.exit(0);
     } catch (err) {
       if (err instanceof Error && err.name === "ExitPromptError") {
         process.exit(0);
@@ -73,6 +74,7 @@ program
   .action(async () => {
     try {
       await runUninstall();
+      process.exit(0);
     } catch (err) {
       if (err instanceof Error && err.name === "ExitPromptError") {
         process.exit(0);
@@ -96,6 +98,7 @@ style
   .action(async (slug) => {
     try {
       await runStyle(slug);
+      process.exit(0);
     } catch (err) {
       if (err instanceof Error && err.name === "ExitPromptError") {
         process.exit(0);
@@ -116,6 +119,7 @@ program
   .action(async (slug, options) => {
     try {
       await runDesign(slug, { force: options.force });
+      process.exit(0);
     } catch (err) {
       if (err instanceof Error && err.name === "ExitPromptError") {
         process.exit(0);

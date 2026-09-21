@@ -6,11 +6,21 @@ NeedMCP official CLI — Configure MCP for AI coding assistants with one command
 
 - **Node.js** >= 22
 
-## Get an API Key
+## Authentication
+
+NeedMCP uses an API key to authenticate requests. You can obtain a key in one of two ways:
+
+### 1. Browser login (OAuth) — recommended
+
+The easiest way. During `needmcp setup`, choose **Login with Browser (OAuth)**: a browser tab opens, you sign in to NeedMCP, and a dedicated API key is generated automatically and saved to `~/.needmcp/config.json`. No copy-pasting required.
+
+### 2. Manual API key
 
 1. Go to [needmcp.com](https://needmcp.com) and sign in
 2. Navigate to the API Keys section in your dashboard
-3. Generate a new key (format: `sk-need-xxx`)
+3. Generate a new key (format: `sk-need-xxx`) and paste it during setup
+
+> **Note:** Guest mode (unauthenticated, limited requests) is temporarily disabled. An API key is required to complete setup.
 
 ## Installation
 
@@ -28,17 +38,38 @@ npx needmcp --help
 
 ### `needmcp setup`
 
-Interactive setup — choose your AI client, select config scope (global or project), and enter your API key.
+Interactive setup — choose your AI client, select config scope (global or project), and authenticate.
 
 ```bash
 needmcp setup
 ```
 
-Skip the API key prompt by passing it directly:
+When run, you'll be asked **how to authenticate**:
+
+| Option | Description |
+| :--- | :--- |
+| Login with Browser (OAuth) | *(Recommended)* Opens your browser and auto-generates a dedicated API key |
+| Enter API Key | Paste an existing `sk-need-xxx` key |
+
+If a valid key is already stored at `~/.needmcp/config.json`, you'll be asked whether to reuse it.
+
+#### Skip the prompts
+
+Authenticate and configure in a single command:
 
 ```bash
+# Authenticate with browser OAuth
+needmcp setup --auth oauth
+
+# Provide an API key directly
 needmcp setup --key sk-need-xxxxxxxxxxxx
+needmcp setup --auth key
 ```
+
+| Flag | Description |
+| :--- | :--- |
+| `-k, --key <key>` | Use the provided NeedMCP API key |
+| `-a, --auth <method>` | Auth method: `oauth` or `key` |
 
 ### `needmcp remove`
 
@@ -89,14 +120,17 @@ Show installed version.
 ## Step-by-Step
 
 ```bash
-# 1. Get your API key at https://needmcp.com
-# 2. Run setup (interactive)
+# 1. Run setup (interactive) — choose "Login with Browser (OAuth)" when prompted
 needmcp setup
 
-# 3. Lock a design style for your session
+# Alternatively, authenticate non-interactively:
+#   needmcp setup --auth oauth          (browser login)
+#   needmcp setup --key sk-need-xxxx    (paste your key)
+
+# 2. Lock a design style for your session
 needmcp style set cream-artisan
 
-# 4. Download design system to ./DESIGN.md
+# 3. Download design system to ./DESIGN.md
 needmcp design modern-dashboard
 
 # Done! Your AI assistant now has access to NeedMCP components.
