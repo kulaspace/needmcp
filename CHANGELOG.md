@@ -5,6 +5,44 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.6.0] - 2026-10-07
+
+### Security
+
+- **OAuth login now uses the Authorization Code flow with PKCE (RFC 7636,
+  `S256`).** The CLI generates a `code_verifier` and sends only its
+  `code_challenge` to the authorization page. The API key is no longer delivered
+  through the browser redirect URL, which previously exposed it in browser
+  history, HTTP/proxy logs, and the `Referer` header of the callback page — and
+  could be intercepted by other local processes watching loopback URLs.
+- The browser now only receives a single-use authorization code with a 60 second
+  TTL; the CLI exchanges it for the API key in a direct back-channel
+  `POST /oauth/cli/token` request, and the key is returned in the JSON body.
+
+### Changed
+
+- `handleCallback()` returns `{ code }` for the PKCE flow. As a temporary
+  transition aid it still falls back to the legacy plaintext `api_key`/`token`
+  callback parameters when no `code` is present, so CLI builds released before
+  the PKCE rollout keep working against older servers. The fallback can be
+  removed once the minimum required server version mandates PKCE.
+- The authorization page now receives `code_challenge` and
+  `code_challenge_method=S256` alongside the existing parameters.
+- Token exchange failures surface the server message, and HTTP 429 is reported
+  as "Too many authentication attempts. Please wait a minute and try again."
+
+### Fixed
+
+- A failed token exchange now renders the error page in the browser. The success
+  page is written only after the exchange succeeds, so the browser can no longer
+  report success for an authentication that actually failed.
+
+### Documentation
+
+- Updated `docs/cli_oauth.md` to the PKCE contract: new flow diagram,
+  `code_challenge` parameters, the `POST /oauth/cli/token` endpoint, and the
+  refreshed TypeScript example.
+
 ## [1.5.0] - 2026-05-19
 
 ### Changed
@@ -85,6 +123,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   CLI clients).
 - Automated npm publish workflow triggered on `v*` tags.
 
+[1.6.0]: https://github.com/kulaspace/needmcp/releases/tag/v1.6.0
 [1.5.0]: https://github.com/kulaspace/needmcp/releases/tag/v1.5.0
 [1.4.0]: https://github.com/kulaspace/needmcp/releases/tag/v1.4.0
 [1.3.0]: https://github.com/kulaspace/needmcp/releases/tag/v1.3.0

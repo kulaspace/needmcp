@@ -138,6 +138,29 @@ needmcp design modern-dashboard
 needmcp remove
 ```
 
+## Environment Variables
+
+The CLI reads environment variables, including from a `.env` file in the
+current working directory (via `dotenv`).
+
+| Variable | Description |
+| :--- | :--- |
+| `NEEDMCP_BASE_URL` | Override the base URL for both API and MCP endpoints |
+| `NEEDMCP_MCP_URL` | Override the base URL for the MCP server only |
+
+> **Warning — do not run `needmcp` inside an untrusted repository.**
+> Because a `.env` file in the current directory is loaded automatically, a
+> repository that ships its own `.env` can redirect the base URL. Running
+> `npx needmcp setup` in such a directory would send your API key to that
+> server instead of `needmcp.com`.
+>
+> To stay safe:
+> - Don't run `needmcp` in a cloned repository you don't trust.
+> - Check for a local `.env` before running setup, or run setup from your home
+>   directory (`cd ~ && npx needmcp setup`).
+> - Only set `NEEDMCP_BASE_URL` yourself if you intend to point the CLI at
+>   another server.
+
 ## Supported Clients
 
 | Client | Configures | Auto |
