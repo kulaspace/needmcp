@@ -2,10 +2,15 @@
 
 declare const __VERSION__: string;
 
-import "dotenv/config";
+import { loadEnv } from "./env.js";
+
+// Must run before any module reads `process.env` at import time (constants.ts).
+loadEnv();
+
 import { Command } from "commander";
 import pc from "picocolors";
 import { runSetup, runUninstall } from "./setup.js";
+import type { OpencodeLayout } from "./clients/opencode-layout.js";
 import type { AuthMode } from "./setup.js";
 import { runStyle } from "./style.js";
 import { runDesign } from "./design.js";
@@ -43,6 +48,10 @@ program
   .description("Setup NeedMCP MCP server for your AI clients")
   .option("-k, --key <key>", "NeedMCP API key")
   .option("-a, --auth <method>", "Auth method: oauth | key")
+  .option(
+    "-l, --opencode-layout <version>",
+    "Skip the OpenCode version question: v1 | v2"
+  )
   .action(async (options) => {
     try {
       let authMode: AuthMode | undefined;
@@ -54,7 +63,27 @@ program
         }
         authMode = value;
       }
-      await runSetup(options.key, authMode);
+
+      // Only Opencode has two incompatible layouts; the flag is validated even
+      // so on other clients, because silently ignoring a typo would hide the
+      // mistake in a CI script.
+      let layoutOverride: OpencodeLayout | undefined;
+      if (options.opencodeLayout !== undefined) {
+        const value = String(options.opencodeLayout).toLowerCase();
+        if (value !== "v1" && value !== "v2") {
+          console.error(
+            pc.red(
+              `Invalid --opencode-layout value "${options.opencodeLayout}". Use "v1" or "v2".\n` +
+                `  v1 writes mcp.<name>          (opencode 1.x)\n` +
+                `  v2 writes mcp.servers.<name>  (opencode 2.x)`
+            )
+          );
+          process.exit(1);
+        }
+        layoutOverride = value;
+      }
+
+      await runSetup(options.key, authMode, layoutOverride);
       process.exit(0);
     } catch (err) {
       if (err instanceof Error && err.name === "ExitPromptError") {

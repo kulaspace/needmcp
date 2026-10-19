@@ -1,14 +1,15 @@
 import type { ClientConfig } from "./types.js";
-import { DEFAULT_MCP_URL } from "../constants.js";
+import { defaultMcpUrl } from "../constants.js";
 
-export const UI_CLIENTS: ClientConfig[] = [
+function buildUiClients(): ClientConfig[] {
+  return [
   {
     id: "amazon-q",
     name: "Amazon Q Developer CLI",
     format: "ui",
     instructions: `1. Open Amazon Q Developer CLI configuration file
 2. Add to mcpServers:
-   "needmcp": { "url": "${DEFAULT_MCP_URL}", "headers": { "X-API-Key": "YOUR_API_KEY" } }
+   "needmcp": { "url": "${defaultMcpUrl()}", "headers": { "X-API-Key": "YOUR_API_KEY" } }
 3. Save and restart`,
   },
   {
@@ -18,7 +19,7 @@ export const UI_CLIENTS: ClientConfig[] = [
     instructions: `1. In Augment Code, click hamburger menu → Settings
 2. Navigate to Tools section
 3. Click + Add MCP
-4. URL: ${DEFAULT_MCP_URL}
+4. URL: ${defaultMcpUrl()}
 5. Add header: X-API-Key = YOUR_API_KEY
 6. Name: NeedMCP, then click Add`,
   },
@@ -28,7 +29,7 @@ export const UI_CLIENTS: ClientConfig[] = [
     format: "ui",
     instructions: `1. Open BoltAI Settings → Plugins
 2. Enter this JSON:
-   { "mcpServers": { "needmcp": { "url": "${DEFAULT_MCP_URL}", "headers": { "X-API-Key": "YOUR_API_KEY" } } } }
+   { "mcpServers": { "needmcp": { "url": "${defaultMcpUrl()}", "headers": { "X-API-Key": "YOUR_API_KEY" } } } }
 3. Save and restart BoltAI`,
   },
   {
@@ -46,7 +47,7 @@ export const UI_CLIENTS: ClientConfig[] = [
     instructions: `1. Go to Settings → Apps → Advanced settings → enable Developer Mode
 2. Go to Settings → Apps → Create App
 3. Name: NeedMCP, Description: Production-ready UI components
-4. MCP Server URL: ${DEFAULT_MCP_URL}
+4. MCP Server URL: ${defaultMcpUrl()}
 5. Header: X-API-Key = YOUR_API_KEY
 6. Save, then start chat with "use NeedMCP"`,
   },
@@ -57,7 +58,7 @@ export const UI_CLIENTS: ClientConfig[] = [
     instructions: `1. Open Cline → hamburger menu → MCP Servers
 2. Choose Remote Servers tab → Edit Configuration
 3. Add to mcpServers:
-   { "needmcp": { "url": "${DEFAULT_MCP_URL}", "type": "streamableHttp", "headers": { "X-API-Key": "YOUR_API_KEY" } } }
+   { "needmcp": { "url": "${defaultMcpUrl()}", "type": "streamableHttp", "headers": { "X-API-Key": "YOUR_API_KEY" } } }
 4. Save and restart`,
   },
   {
@@ -66,7 +67,7 @@ export const UI_CLIENTS: ClientConfig[] = [
     format: "ui",
     instructions: `1. Go to GitHub → Settings → Copilot → Coding agent → MCP configuration
 2. Add this JSON:
-   { "mcpServers": { "needmcp": { "type": "http", "url": "${DEFAULT_MCP_URL}", "headers": { "X-API-Key": "YOUR_API_KEY" } } } }
+   { "mcpServers": { "needmcp": { "type": "http", "url": "${defaultMcpUrl()}", "headers": { "X-API-Key": "YOUR_API_KEY" } } } }
 3. Save`,
   },
   {
@@ -84,7 +85,7 @@ export const UI_CLIENTS: ClientConfig[] = [
     instructions: `1. In JetBrains IDE: Settings → Tools → AI Assistant → Model Context Protocol (MCP)
 2. Click + Add → HTTP tab
 3. Paste this JSON:
-   { "mcpServers": { "needmcp": { "url": "${DEFAULT_MCP_URL}", "headers": { "X-API-Key": "YOUR_API_KEY" } } } }
+   { "mcpServers": { "needmcp": { "url": "${defaultMcpUrl()}", "headers": { "X-API-Key": "YOUR_API_KEY" } } } }
 4. Apply and OK`,
   },
   {
@@ -94,7 +95,7 @@ export const UI_CLIENTS: ClientConfig[] = [
     instructions: `1. Open LM Studio → AI Chat → Settings (gear icon)
 2. Click Edit mcp.json or Add Server
 3. Add to mcpServers:
-   { "needmcp": { "url": "${DEFAULT_MCP_URL}", "headers": { "X-API-Key": "YOUR_API_KEY" } } }
+   { "needmcp": { "url": "${defaultMcpUrl()}", "headers": { "X-API-Key": "YOUR_API_KEY" } } }
 4. Save`,
   },
   {
@@ -105,7 +106,7 @@ export const UI_CLIENTS: ClientConfig[] = [
 2. Click Add Connector → Advanced setup
 3. Server Name: NeedMCP
 4. Paste this JSON:
-   { "url": "${DEFAULT_MCP_URL}", "headers": { "X-API-Key": "YOUR_API_KEY" } }
+   { "url": "${defaultMcpUrl()}", "headers": { "X-API-Key": "YOUR_API_KEY" } }
 5. Save`,
   },
   {
@@ -115,7 +116,7 @@ export const UI_CLIENTS: ClientConfig[] = [
     instructions: `1. Open Qodo Gen chat panel in your IDE
 2. Click "Connect more tools" → + Add new MCP
 3. Paste this JSON:
-   { "mcpServers": { "needmcp": { "url": "${DEFAULT_MCP_URL}", "headers": { "X-API-Key": "YOUR_API_KEY" } } } }
+   { "mcpServers": { "needmcp": { "url": "${defaultMcpUrl()}", "headers": { "X-API-Key": "YOUR_API_KEY" } } } }
 4. Save`,
   },
   {
@@ -124,7 +125,7 @@ export const UI_CLIENTS: ClientConfig[] = [
     format: "ui",
     instructions: `1. Open Roo Code MCP configuration file
 2. Add to mcpServers:
-   { "needmcp": { "type": "streamable-http", "url": "${DEFAULT_MCP_URL}", "headers": { "X-API-Key": "YOUR_API_KEY" } } }
+   { "needmcp": { "type": "streamable-http", "url": "${defaultMcpUrl()}", "headers": { "X-API-Key": "YOUR_API_KEY" } } }
 3. Save and restart`,
   },
   {
@@ -133,7 +134,7 @@ export const UI_CLIENTS: ClientConfig[] = [
     format: "ui",
     instructions: `1. Run: acli rovodev mcp
 2. In the editor, add to mcpServers:
-   { "needmcp": { "url": "${DEFAULT_MCP_URL}", "headers": { "X-API-Key": "YOUR_API_KEY" } } }
+   { "needmcp": { "url": "${defaultMcpUrl()}", "headers": { "X-API-Key": "YOUR_API_KEY" } } }
 3. Save and close`,
   },
   {
@@ -146,3 +147,15 @@ export const UI_CLIENTS: ClientConfig[] = [
 2. Get your key at: https://smithery.ai/server/needmcp`,
   },
 ];
+}
+
+/**
+ * Manual-setup clients.
+ *
+ * Built lazily so the `${defaultMcpUrl()}` inside each instruction string is
+ * evaluated after `.env` has been loaded; a module-level array would capture the
+ * production URL at import time.
+ */
+export function uiClients(): ClientConfig[] {
+  return buildUiClients();
+}

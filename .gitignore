@@ -22,3 +22,6 @@ Desktop.ini
 # Logs
 *.log
 npm-debug.log*
+
+# Verification bundles (esbuild output from `npm run verify:*`)
+scripts/.tmp/

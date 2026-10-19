@@ -4,19 +4,25 @@ import { homedir } from "node:os";
 import { execFileSync } from "node:child_process";
 import { readJsonConfig, getSection } from "../mcp-writer.js";
 import type { ClientConfig, DetectedClient } from "./types.js";
+import { resolveClientConfigKey } from "./types.js";
+import { opencodeConfigKey } from "./opencode-layout.js";
 import { JSON_CLIENTS } from "./json.js";
 import { CLI_CLIENTS } from "./cli.js";
 import { TOML_CLIENTS } from "./toml.js";
-import { UI_CLIENTS } from "./ui.js";
+import { uiClients } from "./ui.js";
 
 export type { ClientConfig, DetectedClient } from "./types.js";
 
-export const ALL_CLIENTS: ClientConfig[] = [
-  ...JSON_CLIENTS,
-  ...TOML_CLIENTS,
-  ...CLI_CLIENTS,
-  ...UI_CLIENTS,
-];
+/**
+ * Every known client, built per call.
+ *
+ * A function rather than a constant because a few clients embed the resolved
+ * MCP URL in their instruction text, and `process.env` is only complete after
+ * `.env` loading.
+ */
+export function allClients(): ClientConfig[] {
+  return [...JSON_CLIENTS, ...TOML_CLIENTS, ...CLI_CLIENTS, ...uiClients()];
+}
 
 const home = homedir();
 
@@ -45,11 +51,42 @@ async function checkJsonClient(client: ClientConfig, scope?: "global" | "project
     try {
       await access(resolved);
       const config = await readJsonConfig(resolved);
-      const key = client.configKey ?? "mcpServers";
       const name = client.serverName ?? "needmcp";
+
+      // Opencode has two incompatible layouts. A server sitting only under the
+      // OTHER one is not "configured": the running binary will not see it. It is
+      // reported as stale so setup asks which version the user runs instead of
+      // claiming everything is fine.
+      if (client.id === "opencode") {
+        const v1Has = !!getSection(config, opencodeConfigKey("v1"))?.[name];
+        const v2Has = !!getSection(config, opencodeConfigKey("v2"))?.[name];
+        return {
+          ...client,
+          detected: true,
+          configured: v1Has || v2Has,
+          configPath: resolved,
+          ...(v1Has !== v2Has ? { staleLayout: v1Has ? "v1" : "v2" } : {}),
+        };
+      }
+
+      const key = resolveClientConfigKey(client);
       const section = getSection(config, key);
       const configured = !!(section && name in section);
       return { ...client, detected: true, configured, configPath: resolved };
+    } catch {}
+  }
+
+  // A client that has only the legacy file is still "detected": setup will
+  // migrate it into the new path on write. Checked per scope, never across.
+  const legacyCandidates =
+    scope === "project"
+      ? (client.legacyProjectPaths ?? []).map((p) => join(process.cwd(), p))
+      : (client.legacyPaths ?? []).map((p) => resolvePath(p));
+
+  for (const resolved of legacyCandidates) {
+    try {
+      await access(resolved);
+      return { ...client, detected: true, configured: false, configPath: resolved };
     } catch {}
   }
 
@@ -96,5 +133,5 @@ export async function detectClient(client: ClientConfig, scope?: "global" | "pro
 }
 
 export async function detectAllClients(scope?: "global" | "project"): Promise<DetectedClient[]> {
-  return Promise.all(ALL_CLIENTS.map((client) => detectClient(client, scope)));
+  return Promise.all(allClients().map((client) => detectClient(client, scope)));
 }

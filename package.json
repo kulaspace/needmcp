@@ -21,6 +21,13 @@
     "dev": "tsup --watch",
     "test": "vitest run",
     "test:watch": "vitest",
+    "smoke:auth": "tsx scripts/smoke-auth.ts",
+    "verify:opencode": "esbuild scripts/e2e-opencode.ts --bundle --platform=node --format=esm --outfile=scripts/.tmp/e2e-opencode.mjs --log-level=error && node scripts/.tmp/e2e-opencode.mjs",
+    "verify:mcp-add": "esbuild scripts/verify-mcp-add.ts --bundle --platform=node --format=esm --outfile=scripts/.tmp/verify-mcp-add.mjs --log-level=error && node scripts/.tmp/verify-mcp-add.mjs",
+    "verify:scope": "esbuild scripts/verify-scope.ts --bundle --platform=node --format=esm --outfile=scripts/.tmp/verify-scope.mjs --log-level=error && node scripts/.tmp/verify-scope.mjs",
+    "verify:flow": "esbuild scripts/verify-flow.ts --bundle --platform=node --format=esm --outfile=scripts/.tmp/verify-flow.mjs --log-level=error && node scripts/.tmp/verify-flow.mjs",
+    "verify:opencode-version": "esbuild scripts/verify-opencode-version.ts --bundle --platform=node --format=esm --outfile=scripts/.tmp/verify-opencode-version.mjs --log-level=error && node scripts/.tmp/verify-opencode-version.mjs",
+    "verify:opencode-dual": "esbuild scripts/probe-opencode-layout.ts --bundle --platform=node --format=esm --outfile=scripts/.tmp/probe.mjs --log-level=error && esbuild scripts/verify-opencode-dual.ts --bundle --platform=node --format=esm --outfile=scripts/.tmp/verify-opencode-dual.mjs --log-level=error && node scripts/.tmp/verify-opencode-dual.mjs",
     "typecheck": "tsc --noEmit"
   },
   "keywords": [
