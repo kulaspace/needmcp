@@ -2,7 +2,7 @@ import { access } from "node:fs/promises";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import { execFileSync } from "node:child_process";
-import { readJsonConfig } from "../mcp-writer.js";
+import { readJsonConfig, getSection } from "../mcp-writer.js";
 import type { ClientConfig, DetectedClient } from "./types.js";
 import { JSON_CLIENTS } from "./json.js";
 import { CLI_CLIENTS } from "./cli.js";
@@ -47,7 +47,7 @@ async function checkJsonClient(client: ClientConfig, scope?: "global" | "project
       const config = await readJsonConfig(resolved);
       const key = client.configKey ?? "mcpServers";
       const name = client.serverName ?? "needmcp";
-      const section = config[key] as Record<string, unknown> | undefined;
+      const section = getSection(config, key);
       const configured = !!(section && name in section);
       return { ...client, detected: true, configured, configPath: resolved };
     } catch {}

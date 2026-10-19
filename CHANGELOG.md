@@ -5,6 +5,48 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Opencode v2 support.** Opencode is now offered as two separate clients,
+  `Opencode` (v1) and `Opencode (v2)`, because v2 moved server entries from
+  `mcp.<name>` to `mcp.servers.<name>` and replaced `enabled` with `disabled`.
+  Writing the wrong schema leaves the server silently disabled, so the variant
+  is chosen explicitly instead of guessed.
+- **Native Opencode OAuth.** When Opencode is selected, the CLI now asks whether
+  to let Opencode handle sign-in or to write an API key. The OAuth path runs
+  `opencode mcp add needmcp --url <url>` followed by
+  `opencode mcp auth needmcp`, matching the order in the Opencode docs.
+  `--global` is passed for v2 global scope; v1 does not document the flag.
+- `getSection()` and path-aware `mergeServerEntry()` / `removeServerEntry()` in
+  `mcp-writer.ts`. Nested keys such as `["mcp", "servers"]` are created on
+  write, and emptied parent objects are pruned on removal. Plain string keys
+  behave exactly as before.
+- `supportsNativeOAuth` and `requiresScopeChoice` client flags.
+
+### Changed
+
+- **`needmcp setup` asks for authentication after the client is chosen.** The
+  previous order ran the CLI's own OAuth login before the client was known, so
+  configuring Opencode with native OAuth left an unused API key in
+  `~/.needmcp/config.json` and made the user sign in twice. Clients that do not
+  support native OAuth are unaffected: they still get the API key prompt.
+- Opencode now writes `opencode.jsonc` in preference to `opencode.json`.
+- Opencode client entries in the setup menu show the schema they write, so v1
+  and v2 are distinguishable at a glance.
+
+### Fixed
+
+- Opencode configurations written by the CLI used the v1 layout only, which
+  Opencode v2 ignores.
+
+### Documentation
+
+- `docs/mcp-client/opencode.md` documents both schemas and the
+  register-then-authenticate order, and notes that `opencode mcp add` has no
+  header flag so `X-API-Key` must be used via OAuth or a manual edit.
+
 ## [1.6.0] - 2026-10-07
 
 ### Security

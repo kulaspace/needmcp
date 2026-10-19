@@ -100,20 +100,47 @@ export const JSON_CLIENTS: ClientConfig[] = [
   {
     id: "opencode",
     name: "Opencode",
+    description: "v1 schema — server entry directly under mcp",
     format: "json",
-    configKey: "mcp",
+    configKey: ["mcp"],
     globalPaths: [
-      join(home, ".config", "opencode", "opencode.json"),
       join(home, ".config", "opencode", "opencode.jsonc"),
+      join(home, ".config", "opencode", "opencode.json"),
     ],
     projectPaths: [
-      "opencode.json",
       "opencode.jsonc",
-      ".opencode.json",
+      "opencode.json",
       ".opencode.jsonc",
+      ".opencode.json",
     ],
+    supportsNativeOAuth: true,
+    requiresScopeChoice: true,
     buildEntry: (apiKey, mcpUrl) => {
       const e: Record<string, unknown> = { type: "remote", url: mcpUrl, enabled: true };
+      if (apiKey) e.headers = { "X-API-Key": apiKey };
+      return e;
+    },
+  },
+  {
+    id: "opencode-v2",
+    name: "Opencode (v2)",
+    description: "v2 schema — server entry under mcp.servers",
+    format: "json",
+    configKey: ["mcp", "servers"],
+    globalPaths: [
+      join(home, ".config", "opencode", "opencode.jsonc"),
+      join(home, ".config", "opencode", "opencode.json"),
+    ],
+    projectPaths: [
+      "opencode.jsonc",
+      "opencode.json",
+      ".opencode.jsonc",
+      ".opencode.json",
+    ],
+    supportsNativeOAuth: true,
+    requiresScopeChoice: true,
+    buildEntry: (apiKey, mcpUrl) => {
+      const e: Record<string, unknown> = { type: "remote", url: mcpUrl };
       if (apiKey) e.headers = { "X-API-Key": apiKey };
       return e;
     },

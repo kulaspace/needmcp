@@ -1,16 +1,26 @@
 import { intro, outro, cancel, isCancel, text, select, confirm } from "@clack/prompts";
 import pc from "picocolors";
-import { execSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import { join } from "node:path";
 import { readJsonConfig, writeJsonConfig, mergeServerEntry, appendTomlServer, removeServerEntry, removeTomlServer } from "./mcp-writer.js";
 import { loadConfig, saveConfig, resolveMcpUrl, resolveBaseUrl } from "./config.js";
 import { ALL_CLIENTS, detectAllClients, resolvePath, resolveClientPaths } from "./clients/index.js";
 import type { ClientConfig, DetectedClient } from "./clients/index.js";
+import {
+  buildOpencodeAddArgs,
+  buildOpencodeAuthArgs,
+  formatArgv,
+  isOpencodeInstalled,
+  type OpencodeVersion,
+} from "./clients/opencode-cli.js";
 import { CliError } from "./errors.js";
 import { validateApiKey } from "./validation.js";
 import { loginWithOAuth } from "./oauth.js";
 
 export type AuthMode = "oauth" | "key";
+
+/** How the NeedMCP entry gets authentication when the client supports OAuth. */
+type AuthChoice = "native-oauth" | "api-key";
 
 // Temporary kill-switch for guest mode. Set to `true` to re-enable the
 // "Guest Mode" option in the authentication menu. When `false`, users must
@@ -20,8 +30,14 @@ const GUEST_MODE_ENABLED = false;
 function getAvailableScopes(client: ClientConfig): ("global" | "project")[] {
   const scopes: ("global" | "project")[] = [];
   if (client.globalPaths?.length) scopes.push("global");
-  if (client.projectPaths?.length) scopes.push("project");
+  if (client.projectPaths?.length || client.requiresScopeChoice) scopes.push("project");
   return scopes;
+}
+
+function opencodeVersionOf(client: ClientConfig): OpencodeVersion | null {
+  if (client.id === "opencode") return "v1";
+  if (client.id === "opencode-v2") return "v2";
+  return null;
 }
 
 function statusIcon(dc: DetectedClient): string {
@@ -159,6 +175,44 @@ interface SetupResult {
   message: string;
 }
 
+/**
+ * Ask how the client should authenticate.
+ *
+ * `nativeOAuth` is only offered for clients that run the OAuth handshake
+ * themselves (Opencode). Booking the choice here — after the client is known —
+ * is what lets the API-key path stay untouched for every other client.
+ */
+async function promptAuthChoice(nativeOAuth: boolean, forced?: AuthMode): Promise<AuthChoice> {
+  if (!nativeOAuth) return "api-key";
+
+  // An explicit `--auth` flag still decides for clients that support both.
+  if (forced === "oauth") return "native-oauth";
+  if (forced === "key") return "api-key";
+
+  const choice = await select({
+    message: "How should Opencode authenticate to NeedMCP?",
+    options: [
+      {
+        value: "native-oauth" as const,
+        label: "Opencode OAuth",
+        hint: `${pc.green("Recommended")} — Opencode handles the browser sign-in`,
+      },
+      {
+        value: "api-key" as const,
+        label: "API key",
+        hint: "Write X-API-Key into opencode.jsonc",
+      },
+    ],
+  });
+
+  if (isCancel(choice)) {
+    cancel("Setup cancelled");
+    throw new CliError("Setup cancelled");
+  }
+
+  return choice;
+}
+
 async function setupJsonClient(
   client: ClientConfig,
   apiKey: string | undefined,
@@ -189,6 +243,74 @@ async function setupJsonClient(
     clientName: client.name,
     success: true,
     message: alreadyExists ? "Updated" : "Created",
+  };
+}
+
+function runOpencode(args: string[]): { ok: boolean; output: string } {
+  process.stdout.write(`\n    Running: ${pc.dim(formatArgv("opencode", args))}\n\n`);
+  try {
+    execFileSync("opencode", args, { stdio: "inherit", timeout: 120000 });
+    process.stdout.write("\n");
+    return { ok: true, output: "" };
+  } catch (err) {
+    process.stdout.write("\n");
+    const msg = err instanceof Error ? err.message : String(err);
+    return { ok: false, output: msg.slice(0, 200) };
+  }
+}
+
+/**
+ * Configure Opencode through its own CLI when the user picked native OAuth.
+ *
+ * Order matters and mirrors the Opencode docs: the server is registered first,
+ * then authenticated. `opencode mcp auth needmcp` cannot resolve a server that
+ * is not in the config yet.
+ *
+ * When the binary is missing we fall back to writing the config file directly
+ * and tell the user how to authenticate — a registered-but-unauthenticated
+ * server is recoverable, a hard failure is not.
+ */
+async function setupOpencodeWithOAuth(
+  client: ClientConfig,
+  version: OpencodeVersion,
+  mcpUrl: string,
+  scope: "global" | "project"
+): Promise<SetupResult> {
+  if (!isOpencodeInstalled()) {
+    const fallback = await setupJsonClient(client, undefined, mcpUrl, scope);
+    if (!fallback.success) return fallback;
+    return {
+      ...fallback,
+      message:
+        "Created without auth — `opencode` not found on PATH. Run `opencode mcp add needmcp --url <url>` then `opencode mcp auth needmcp`",
+    };
+  }
+
+  const add = runOpencode(buildOpencodeAddArgs(version, scope, mcpUrl));
+  if (!add.ok) {
+    return {
+      clientId: client.id,
+      clientName: client.name,
+      success: false,
+      message: `opencode mcp add failed: ${add.output}`,
+    };
+  }
+
+  const auth = runOpencode(buildOpencodeAuthArgs());
+  if (!auth.ok) {
+    return {
+      clientId: client.id,
+      clientName: client.name,
+      success: true,
+      message: `Server added, but authentication failed (${auth.output}). Run \`opencode mcp auth needmcp\` manually`,
+    };
+  }
+
+  return {
+    clientId: client.id,
+    clientName: client.name,
+    success: true,
+    message: "Added and authenticated via Opencode OAuth",
   };
 }
 
@@ -232,10 +354,7 @@ async function setupCliClient(
 
   process.stdout.write(`\n    Running: ${pc.dim(cmd)}\n\n`);
   try {
-    execSync(cmd, {
-      stdio: "inherit",
-      timeout: 120000,
-    });
+    execFileSync(cmd, [], { stdio: "inherit", timeout: 120000, shell: true });
     process.stdout.write("\n");
     return { clientId: client.id, clientName: client.name, success: true, message: "CLI command succeeded" };
   } catch (err) {
@@ -266,11 +385,6 @@ async function setupClient(
 export async function runSetup(providedKey?: string, authMode?: AuthMode): Promise<void> {
   intro(pc.bgCyan(pc.black(" needmcp setup ")));
 
-  const apiKey = await ensureApiKey(providedKey, authMode);
-
-  const config = await loadConfig();
-  const mcpUrl = resolveMcpUrl(config);
-
   const detected = await detectAllClients();
 
   const sortWeight = (dc: DetectedClient): number => dc.configured ? 0 : dc.detected ? 1 : 2;
@@ -279,7 +393,7 @@ export async function runSetup(providedKey?: string, authMode?: AuthMode): Promi
   const options = detected.map((dc) => ({
     value: dc.id,
     label: `${statusIcon(dc)} ${dc.name}`,
-    hint: statusText(dc),
+    hint: dc.description ? `${statusText(dc)} — ${dc.description}` : statusText(dc),
   }));
 
   const selected = await select({
@@ -319,6 +433,20 @@ export async function runSetup(providedKey?: string, authMode?: AuthMode): Promi
     scope = selectedScope;
   }
 
+  // Auth is resolved only once the client is known: a client with native
+  // OAuth may need no CLI login at all, and asking first would leave unused
+  // API keys behind.
+  const nativeOAuth = client.supportsNativeOAuth === true;
+  const authChoice = await promptAuthChoice(nativeOAuth, authMode);
+
+  let apiKey: string | undefined;
+  if (authChoice === "api-key") {
+    apiKey = await ensureApiKey(providedKey, authMode);
+  }
+
+  const config = await loadConfig();
+  const mcpUrl = resolveMcpUrl(config);
+
   outro(`Setting up ${pc.cyan(clientId)} (${scope})...\n`);
 
   const results: SetupResult[] = [];
@@ -327,7 +455,11 @@ export async function runSetup(providedKey?: string, authMode?: AuthMode): Promi
     process.stdout.write(label);
 
     try {
-      const result = await setupClient(client, apiKey, mcpUrl, scope);
+      const version = opencodeVersionOf(client);
+      const result =
+        version && authChoice === "native-oauth"
+          ? await setupOpencodeWithOAuth(client, version, mcpUrl, scope)
+          : await setupClient(client, apiKey, mcpUrl, scope);
       results.push(result);
 
       if (result.success) {

@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { mkdtemp, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { stripJsonComments, mergeServerEntry, removeServerEntry, buildTomlBlock, appendTomlServer } from "../mcp-writer.js";
+import { stripJsonComments, mergeServerEntry, removeServerEntry, getSection, toKeyPath, buildTomlBlock, appendTomlServer } from "../mcp-writer.js";
 
 describe("stripJsonComments", () => {
   it("removes single-line comments", () => {
@@ -69,6 +69,60 @@ describe("removeServerEntry", () => {
   it("returns false for non-existent entry", () => {
     const existing = { mcpServers: {} };
     const { removed } = removeServerEntry(existing, "mcpServers", "needmcp");
+    expect(removed).toBe(false);
+  });
+});
+
+describe("nested config keys", () => {
+  it("normalises a string key into a one-element path", () => {
+    expect(toKeyPath("mcpServers")).toEqual(["mcpServers"]);
+    expect(toKeyPath(["mcp", "servers"])).toEqual(["mcp", "servers"]);
+  });
+
+  it("returns undefined for a missing nested section", () => {
+    expect(getSection({}, ["mcp", "servers"])).toBeUndefined();
+    expect(getSection({ mcp: {} }, ["mcp", "servers"])).toBeUndefined();
+  });
+
+  it("creates intermediate objects when the path does not exist", () => {
+    const { config, alreadyExists } = mergeServerEntry({}, ["mcp", "servers"], "needmcp", { url: "u" });
+    expect(alreadyExists).toBe(false);
+    expect(config).toEqual({ mcp: { servers: { needmcp: { url: "u" } } } });
+  });
+
+  it("preserves unrelated top-level keys", () => {
+    const { config } = mergeServerEntry({ $schema: "s", theme: "dark" }, ["mcp", "servers"], "needmcp", {});
+    expect(config.$schema).toBe("s");
+    expect(config.theme).toBe("dark");
+  });
+
+  it("reports alreadyExists for a nested entry", () => {
+    const existing = { mcp: { servers: { needmcp: { url: "old" } } } };
+    const { alreadyExists } = mergeServerEntry(existing, ["mcp", "servers"], "needmcp", { url: "new" });
+    expect(alreadyExists).toBe(true);
+  });
+
+  it("does not mutate the input config", () => {
+    const existing = { mcp: { servers: {} } };
+    mergeServerEntry(existing, ["mcp", "servers"], "needmcp", {});
+    expect(existing).toEqual({ mcp: { servers: {} } });
+  });
+
+  it("prunes emptied parents when removing a nested entry", () => {
+    const existing = { other: 1, mcp: { servers: { needmcp: {} } } };
+    const { config, removed } = removeServerEntry(existing, ["mcp", "servers"], "needmcp");
+    expect(removed).toBe(true);
+    expect(config).toEqual({ other: 1 });
+  });
+
+  it("leaves sibling servers in place on nested removal", () => {
+    const existing = { mcp: { servers: { needmcp: {}, keep: { a: 1 } } } };
+    const { config } = removeServerEntry(existing, ["mcp", "servers"], "needmcp");
+    expect(config).toEqual({ mcp: { servers: { keep: { a: 1 } } } });
+  });
+
+  it("returns removed=false for a missing nested entry", () => {
+    const { removed } = removeServerEntry({ mcp: { servers: {} } }, ["mcp", "servers"], "needmcp");
     expect(removed).toBe(false);
   });
 });

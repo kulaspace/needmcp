@@ -172,7 +172,8 @@ current working directory (via `dotenv`).
 | VS Code | `.vscode/mcp.json` | ✅ |
 | Gemini CLI | `settings.json` | ✅ |
 | GitHub Copilot CLI | `mcp-config.json` | ✅ |
-| Opencode | `opencode.json` / `opencode.jsonc` | ✅ |
+| Opencode (v1) | `opencode.jsonc` (`mcp`) | ✅ |
+| Opencode (v2) | `opencode.jsonc` (`mcp.servers`) | ✅ |
 | Kiro | `mcp.json` | ✅ |
 | Kilo Code | `mcp.json` | ✅ |
 | Visual Studio 2022 | `.vs/mcp.json` | ✅ |
