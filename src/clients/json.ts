@@ -1,8 +1,7 @@
 import { join } from "node:path";
 import { homedir } from "node:os";
 import type { ClientConfig } from "./types.js";
-import { buildOpencodeAddArgs, buildOpencodeAuthArgs, canScriptMcpAdd } from "./opencode-cli.js";
-import { asOpencodeLayout, buildOpencodeEntryFor, opencodeConfigKey } from "./opencode-layout.js";
+import { buildOpencodeAuthArgs } from "./opencode-cli.js";
 import {
   buildGeminiAddArgs,
   buildKiloAddArgs,
@@ -127,42 +126,44 @@ export const JSON_CLIENTS: ClientConfig[] = [
   {
     id: "opencode",
     name: "Opencode",
-    description: "Writes the needmcp entry into opencode.json",
+    description: "Writes the needmcp entry into opencode.jsonc",
     format: "json",
-    // The two versions disagree about BOTH the key and the entry shape, and
-    // neither accepts the other's layout:
+    // One single layout, written straight into `opencode.jsonc`:
     //
-    //   version  config root           entry
-    //   1.2.27   mcp.<name>            { type, url, enabled, oauth, headers }
-    //   2.0.32   mcp.servers.<name>    { type, url, headers, disabled }
+    //   { "mcp": { "needmcp": { type, url, enabled, headers? } } }
     //
-    // Verified: 1.2.27 fails the WHOLE config with "Invalid input mcp.servers",
-    // hiding every sibling, so the two layouts cannot coexist. Exactly one is
-    // chosen per run — the user picks when both versions are installed, and
-    // setup passes the choice in via `layout`. Without an override this falls
-    // back to detection, which is what non-setup callers (tests, inspection)
-    // rely on.
-    configKey: (layout) => opencodeConfigKey(asOpencodeLayout(layout)),
-    // `opencode.json` is read by both versions; 2.x ignores `.jsonc` entirely
-    // ("No MCP servers configured"), so it is never a write target.
-    globalPaths: [join(home, ".config", "opencode", "opencode.json")],
-    projectPaths: ["opencode.json"],
-    // `opencode.jsonc` was written by an earlier release of this CLI. Read once,
-    // per scope, to carry the user's servers across — never written again.
-    legacyPaths: [join(home, ".config", "opencode", "opencode.jsonc")],
-    legacyProjectPaths: ["opencode.jsonc"],
+    // This is the shape Opencode 1.x and 2.x both accept — `mcp.<name>` at the
+    // top level of `mcp`, no `mcp.servers` wrapper. The entry is written by
+    // editing the file in place (other keys such as `model`/`agents`/sibling
+    // servers survive), never by replacing it.
+    //
+    // The only variable part is `headers`, which the auth choice decides:
+    //   OAuth     → no headers, then `opencode mcp auth needmcp`
+    //   API key   → headers: { "X-API-Key": ... }
+    configKey: "mcp",
+    globalPaths: [join(home, ".config", "opencode", "opencode.jsonc")],
+    projectPaths: ["opencode.jsonc"],
+    // Detected by its binary, like every other CLI client — without this the
+    // entry only counted as "detected" once the config file existed, so a fresh
+    // install showed up as `not found` and sank to the bottom of the list.
+    //
+    // The config file is the same either way, so there is no per-version
+    // variant here: any installed Opencode name means "this client is present".
+    detectPaths: ["opencode", "opencode2"],
     supportsNativeOAuth: true,
     requiresScopeChoice: true,
-    buildEntry: (apiKey, mcpUrl, layout) =>
-      buildOpencodeEntryFor(asOpencodeLayout(layout), { apiKey, mcpUrl }),
-    // Opencode 1.x's `mcp add` is a TUI wizard with no flags, so `addArgs`
-    // returns `null` when only the 1.x binary is installed. `runNativeOAuth`
-    // treats `null` as "no scriptable add" and writes the file directly.
+    buildEntry: (apiKey, mcpUrl) => {
+      const entry: Record<string, unknown> = { type: "remote", url: mcpUrl, enabled: true };
+      if (apiKey) entry.headers = { "X-API-Key": apiKey };
+      return entry;
+    },
+    // The server is registered by writing the file, so there is no `mcp add`
+    // step to run. Sign-in is always `opencode mcp auth needmcp`, run after the
+    // file is written.
     oauth: {
       mode: "native",
       binary: "opencode",
-      addArgs: (mcpUrl, scope) =>
-        canScriptMcpAdd() ? buildOpencodeAddArgs({ mcpUrl, scope }) : null,
+      addArgs: () => null,
       loginArgs: buildOpencodeAuthArgs,
       buildEntry: (mcpUrl) => ({ type: "remote", url: mcpUrl, enabled: true }),
     },

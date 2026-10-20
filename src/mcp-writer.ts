@@ -46,23 +46,12 @@ export async function readJsonConfig(filePath: string): Promise<Record<string, u
   }
 }
 
-/** A config key, or a function returning one when the layout is dynamic. */
-export type ConfigKey = string | string[] | (() => string | string[]);
-
-/**
- * Resolve a possibly-dynamic config key into its concrete form.
- *
- * Clients whose schema differs between installed versions (Opencode 1.x vs
- * 2.x) expose `configKey` as a function so the value is decided at use time.
- */
-export function resolveConfigKey(configKey: ConfigKey): string | string[] {
-  return typeof configKey === "function" ? configKey() : configKey;
-}
+/** A config key: a plain name or a path of nested keys. */
+export type ConfigKey = string | string[];
 
 /** Normalise a config key into a path of at least one segment. */
 export function toKeyPath(configKey: ConfigKey): string[] {
-  const resolved = resolveConfigKey(configKey);
-  const path = (Array.isArray(resolved) ? resolved : [resolved]).filter((s) => s.length > 0);
+  const path = (Array.isArray(configKey) ? configKey : [configKey]).filter((s) => s.length > 0);
   return path.length > 0 ? path : ["mcpServers"];
 }
 
@@ -160,6 +149,79 @@ export async function writeJsonConfig(
   await atomicWrite(filePath, JSON.stringify(config, null, 2) + "\n");
 }
 
+/**
+ * Append `mcp.<name>` to an existing `mcp` object by editing the text.
+ *
+ * Regenerating a JSONC file erases every comment and reorders nothing, so the
+ * user's annotations vanish on every `needmcp setup`. When the file already has
+ * a top-level `mcp` object, the new entry is spliced in right after its opening
+ * brace and the rest of the file is left byte-for-byte intact.
+ *
+ * Returns null when the insertion point cannot be located reliably — the caller
+ * then falls back to a normal rewrite.
+ */
+export function insertEntryText(
+  raw: string,
+  keyPath: string[],
+  serverName: string,
+  entry: Record<string, unknown>
+): string | null {
+  if (keyPath.length !== 1) return null;
+
+  const rootKey = keyPath[0];
+  const body = JSON.stringify(entry, null, 2)
+    .split("\n")
+    .map((line) => "    " + line)
+    .join("\n")
+    .trimStart();
+
+  // Locate `"<rootKey>"` outside of any string, then its opening brace.
+  let i = 0;
+  let start = -1;
+  while (i < raw.length) {
+    if (raw[i] === '"') {
+      const from = i;
+      i++;
+      while (i < raw.length && raw[i] !== '"') {
+        if (raw[i] === "\\") i++;
+        i++;
+      }
+      i++;
+      if (start < 0 && raw.slice(from + 1, i - 1) === rootKey) {
+        // Walk past the colon to the object opening.
+        let j = i;
+        while (j < raw.length && /\s/.test(raw[j])) j++;
+        if (raw[j] === ":") {
+          j++;
+          while (j < raw.length && /\s/.test(raw[j])) j++;
+          if (raw[j] === "{") start = j;
+        }
+      }
+    } else if (raw[i] === "/" && raw[i + 1] === "/") {
+      while (i < raw.length && raw[i] !== "\n") i++;
+    } else if (raw[i] === "/" && raw[i + 1] === "*") {
+      i += 2;
+      while (i < raw.length && !(raw[i] === "*" && raw[i + 1] === "/")) i++;
+      i += 2;
+    } else {
+      i++;
+    }
+  }
+
+  if (start < 0) return null;
+
+  // The object must still be empty for a naive splice to be valid; anything
+  // else means we would have to find the matching close brace, which risks
+  // corrupting a hand-formatted file. Fall back instead.
+  let j = start + 1;
+  while (j < raw.length && /\s/.test(raw[j])) j++;
+  if (raw[j] !== "}") return null;
+
+  const head = raw.slice(0, start + 1);
+  const tail = raw.slice(start + 1);
+  return `${head}\n    ${JSON.stringify(serverName)}: ${body}\n  ${tail}`;
+}
+
 export async function resolveMcpPath(candidates: string[]): Promise<string | null> {
   for (const candidate of candidates) {
     try {
@@ -218,79 +280,7 @@ export interface MigrationSource {
   config: Record<string, unknown>;
 }
 
-/**
- * Remove an entry left at the OTHER Opencode layout's path.
- *
- * The two versions use different roots and neither accepts the other's:
- *
- *   opencode 1.x   mcp.<name>
- *   opencode 2.x   mcp.servers.<name>
- *
- * So whenever the user switches version — or an older CLI release wrote the
- * other layout — the previous entry must go. Two reasons it matters:
- *
- *  - a leftover `mcp.servers` makes 1.x reject the WHOLE file ("Invalid input
- *    mcp.servers"), hiding every other server;
- *  - a leftover `mcp.needmcp` alongside `mcp.servers.needmcp` gives the same
- *    server two conflicting entries, so whichever the client prefers wins.
- *
- * When removing `mcp.servers.<name>` empties the `servers` object, the object
- * itself is dropped: an empty `mcp.servers` still trips the 1.x validator even
- * though it holds nothing.
- *
- * Returns the config unchanged when there is no stray entry.
- */
-export function cleanupStrayEntry(
-  config: Record<string, unknown>,
-  configKey: ConfigKey,
-  serverName: string
-): { config: Record<string, unknown>; removed: boolean } {
-  const canonical = toKeyPath(configKey);
-  const strayKey = canonical.join(".") === "mcp.servers" ? ["mcp"] : ["mcp", "servers"];
 
-  const section = getSection(config, strayKey);
-  if (!section || !(serverName in section)) {
-    return { config, removed: false };
-  }
-
-  const result = removeServerEntry(config, strayKey, serverName);
-
-  // Drop a `servers` container that is now empty — 1.x rejects the key itself,
-  // not just its contents, so an empty object is still a broken config.
-  const emptied = getSection(result.config, strayKey);
-  if (strayKey.length > 1 && emptied && Object.keys(emptied).length === 0) {
-    const parent = getSection(result.config, strayKey.slice(0, -1));
-    if (parent) delete parent[strayKey[strayKey.length - 1]];
-  }
-
-  return { config: result.config, removed: true };
-}
-
-/**
- * Load a legacy config file to seed a new one, when the target does not exist.
- *
- * Opencode writes `opencode.json` in some versions and `opencode.jsonc` in
- * others. Rather than guessing which one the running binary prefers, new
- * entries always go to the `.jsonc` file; a pre-existing `.json` is copied in
- * once so the user's other servers survive the switch. The legacy file is
- * never modified or deleted.
- */
-export async function loadMigrationSource(
-  targetPath: string,
-  candidates: string[]
-): Promise<MigrationSource | null> {
-  if (await fileExists(targetPath)) return null;
-
-  for (const candidate of candidates) {
-    if (candidate === targetPath) continue;
-    if (!(await fileExists(candidate))) continue;
-    const config = await readJsonConfig(candidate);
-    if (Object.keys(config).length === 0) continue;
-    return { from: candidate, config };
-  }
-
-  return null;
-}
 
 function tomlString(value: string): string {
   // TOML basic strings share the same escaping rules as JSON strings

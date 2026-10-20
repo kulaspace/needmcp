@@ -47,10 +47,14 @@ dispatcher in `setup.ts` routes on it:
 - `ui`   -> `uiClients()` (`clients/ui.ts`) — no auto-write; just prints manual `instructions`
 
 **Adding a client:** add one object to the right array; do not touch `setup.ts` unless you need a new
-`format`. `configKey` is `string | string[] | (() => string | string[])` — a string hits a top-level
-key, an array walks nested objects (`["mcp"]` for Opencode 1.x, `["mcp","servers"]` for 2.x). Use the
-function form when the layout depends on the installed client version, and always resolve it through
+`format`. `configKey` is `string | string[]` — a string hits a top-level key, an array walks nested
+objects (`["mcp"]` for Opencode). Always resolve it through
 `resolveClientConfigKey()`. `serverName` defaults to `needmcp` (Zed uses `NeedMCP`).
+
+`detectPaths` works for **every** format, including `json`: when no config file exists yet, the
+client is still reported as `detected` if any listed binary resolves on `PATH`. Without it a
+freshly installed client reads as `not found` and sinks to the bottom of the `setup` picker,
+which is indistinguishable from "not supported".
 The API-key header is `X-API-Key`; entry shapes differ per client (`url`, `serverUrl`, `httpUrl`,
 `type: http|remote`, …) — copy the exact shape from a sibling entry, they are not interchangeable.
 
@@ -82,7 +86,7 @@ emits `Authorization`, `Bearer`, or `guest_id` into an entry.
 `ClientConfig.oauth` (in `clients/types.ts`) replaces the ad-hoc Opencode special case:
 
 - `mode: "native"` — the CLI runs `addArgs` then `loginArgs` through the client's binary
-  (Claude Code, Amp, Factory, OpenCode v1/v2, Codex, Qwen, Gemini, Kilo).
+  (Claude Code, Amp, Factory, OpenCode, Codex, Qwen, Gemini, Kilo).
 - `mode: "config-only"` — write `buildEntry`, sign-in happens in-app (Cursor, VS Code, Zed, Kiro,
   Crush).
 - no `oauth` field — API-key only. Keep it that way for clients without verified support
@@ -95,53 +99,53 @@ verify a client's argv, do not guess — leave it on the API-key path.
 Gemini rejects callbacks without `iss` (RFC 9207). The entry must keep
 `"authorizationResponseIssParameterSupported": false`.
 
-## Opencode: one client, layout detected per version
+## Opencode: one client, one config shape
 
-There is exactly **one** Opencode client. Do not reintroduce an `opencode-v2` variant.
-The two released versions use **incompatible layouts and each rejects the other's**, so
-the installed version decides the shape. Every fact below was measured on a real machine:
+There is exactly **one** Opencode client and **one** config shape. Do not
+reintroduce a per-version layout, an `opencode-v2` variant, or a version prompt.
+
+Everything is written to `opencode.jsonc`, at `mcp.needmcp`:
+
+```jsonc
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "needmcp": {
+      "type": "remote",
+      "url": "https://needmcp.com/mcp",
+      "enabled": true,
+      "headers": { "X-API-Key": "sk-need-..." }
+    }
+  }
+}
+```
+
+`headers` is present in API-key mode and **absent** in OAuth mode. No
+`mcp.servers` wrapper, no `oauth` field, no `disabled` field.
 
 | Fact | Evidence |
 | :--- | :--- |
-| 1.x and 2.x install as **different binaries** (`opencode` = 1.2.27, `opencode2` = 2.0.32) | `where.exe`, `--version` |
-| 1.x reads `mcp.<name>`; 2.x reads `mcp.servers.<name>` | `debug config` shows the parsed tree |
-| 1.x **rejects** `mcp.servers` → `Error: Configuration is invalid … Invalid input mcp.servers`, which hides **every** server | `opencode mcp list` in a project dir |
-| Both versions **do** read `opencode.json`; 2.x **ignores** `opencode.jsonc` ("No MCP servers configured") | write probe per filename |
-| `opencode mcp add` accepts flags in 2.x only; `--header` takes `key=value`, not `key: value` | `opencode2 mcp add --help` |
-| 1.x's `mcp add` is a TUI wizard with **no** flags — it cannot be scripted | `opencode mcp add --help` lists only `-h/-v/--log-level` |
-| With OAuth on, `X-API-Key` is ignored and the server sits at *needs authentication* | compare entries with and without `"oauth": false` |
+| Both versions accept `mcp.<name>` and read `opencode.jsonc` | `opencode2 debug config`, `opencode mcp list` |
+| 2.x normalises `mcp.<name>` to `mcp.servers.<name>` **internally**; the file on disk stays `mcp.<name>` | `opencode2 debug config` output |
+| 1.x **rejects** a literal `mcp.servers` key in the file -> `Invalid input mcp.servers`, hiding **every** server | `opencode mcp list` in a project dir |
+| `opencode mcp auth needmcp` exists in 1.x | `opencode mcp --help` |
 
-Consequences encoded in code (`clients/opencode-layout.ts`):
+Rules encoded in code:
 
-- `configKey` is a **function**: `["mcp"]` for v1, `["mcp","servers"]` for v2. Resolve it
-  through `resolveClientConfigKey()` — never read `.configKey` directly.
-- Entry shape follows the version: v1 `{type,url,enabled,oauth:false,headers}`, v2
-  `{type,url,headers,disabled:false}`. The two are never mixed.
-- `globalPaths`/`projectPaths` list `opencode.json` **only** — the single name both
-  versions read. `opencode.jsonc` lives in `legacyPaths`: read once for migration, never
-  written, never deleted.
-- `opencode mcp add` is used only when 2.x is installed. 1.x writes the file directly.
-- A stray entry under the *other* layout's path is removed on write
-  (`cleanupStrayEntry`, both directions, `needmcp` only). It also drops a
-  `mcp.servers` container that becomes empty — 1.x rejects the key itself, not
-  just its contents.
-- **When both versions are installed, setup asks** which one the user runs, on
-  every run. Nothing is persisted; switching binaries needs no reset.
-  `--opencode-layout v1|v2` skips the question. Non-interactive runs without it
-  must **fail**, never guess: a wrong layout writes a config the running binary
-  silently ignores, which reads to the user as "needmcp is broken".
-- Version probing is the fragile part. `where opencode` lists the extensionless
-  npm shell shim **before** `opencode.cmd`, and that file cannot be spawned, so
-  candidates are filtered to `.exe/.com/.cmd/.bat` and batch files go through
-  `cmd.exe` with the path kept whole. The result is cached per process — each
-  `.cmd` probe costs ~1.7s on Windows.
+- `configKey` is the plain string `"mcp"`. There is no function form.
+- `oauth.addArgs` always returns `null`: the file is written by hand, never via
+  `opencode mcp add`. `oauth.loginArgs` is `["mcp","auth","needmcp"]`.
+- Order in `runNativeOAuth`: write the file first, then run `mcp auth`. A
+  `mcp auth` cannot resolve a server that is not in the config yet.
+- If the `opencode` binary is missing, the config is still written and the exact
+  command is printed. Never hard-fail there.
+- `opencode.json` is never read, written or deleted. `opencode.jsonc` is the only
+  target, so there is no migration path and no `legacyPaths`.
+- The writer **edits**: `mergeServerEntry` reads the existing document and
+  inserts `mcp.needmcp`. `$schema`, `model`, `agents` and sibling servers must
+  survive — `scripts/verify-flow.ts` asserts exactly this.
 
-`npm run verify:opencode` exercises this end to end against the real binary,
-`verify:opencode-version` covers detection and the two-way cleanup, and
-`verify:opencode-dual` prepends stand-in binaries to `PATH` to reach the
-both-installed branch that a single-version machine can never hit. All three must
-run through `node` (not `npx tsx`): `npx` rewrites `PATH` and resolves a different
-Opencode binary than the user's shell sees.
+`npm run verify:opencode` exercises this end to end against the real binary.
 
 **`opencode2 mcp list` is not a verification tool.** Its background service binds to the
 first project directory it ever saw and keeps serving that one; from any other directory

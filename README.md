@@ -85,7 +85,7 @@ Supported clients and how OAuth is driven:
 | Claude Code | ✅ | Yes | `claude mcp add --transport http`, then `/mcp` in-session |
 | Amp | ✅ | Yes | `amp mcp add` — sign-in on first use |
 | Factory (droid) | ✅ | Yes | `droid mcp add --type http`, then `/mcp` |
-| OpenCode | ✅ | Yes | writes `opencode.json` (layout per installed version), then `opencode mcp auth needmcp` |
+| OpenCode | ✅ | Yes | writes `opencode.jsonc` (`mcp.needmcp`), then `opencode mcp auth needmcp` |
 | OpenAI Codex | ✅ | Yes | `codex mcp add` → `codex mcp login needmcp` |
 | Qwen Code | ✅ | Yes | `qwen mcp add --transport http` |
 | Gemini CLI | ✅ | Yes | `gemini mcp add --transport http` (adds the RFC 9207 opt-out below) |
@@ -103,45 +103,37 @@ issuer is discovered, and NeedMCP does not advertise
 includes `"authorizationResponseIssParameterSupported": false`; without it every
 callback is rejected.
 
-**Opencode caveats** — all verified against the real binaries, `opencode`
-1.2.27 and `opencode2` 2.0.32:
+**Opencode** writes one config file and one shape, verified against the real
+binaries (`opencode` 1.2.27 and `opencode2` 2.0.32):
 
-The two versions use incompatible config layouts and each rejects the other's:
+`opencode.jsonc` (global: `~/.config/opencode/opencode.jsonc`):
 
-| | Opencode 1.2.27 | Opencode 2.0.32 |
-|---|---|---|
-| Config key | `mcp.<name>` | `mcp.servers.<name>` |
-| Entry | `{type, url, enabled, oauth, headers}` | `{type, url, headers, disabled}` |
-| Reads `opencode.json` | yes | yes |
-| Reads `opencode.jsonc` | yes | **no** |
+```jsonc
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "needmcp": {
+      "type": "remote",
+      "url": "https://needmcp.com/mcp",
+      "enabled": true,
+      "headers": { "X-API-Key": "sk-need-..." }
+    }
+  }
+}
+```
 
-- The installed version therefore decides the layout. When **both** versions are
-  installed, `needmcp setup` asks which one you use — every run, since the answer
-  is never persisted, so switching binaries needs no reset. Non-interactive runs
-  must say so explicitly with `--opencode-layout v1|v2`; without it they fail
-  rather than guess, because guessing writes a config the running binary silently
-  ignores.
-- Switching versions cleans up after itself: the entry left at the other
-  layout's path is removed (only `needmcp`; other servers stay). When that empties
-  `mcp.servers`, the container itself is dropped — 1.x rejects the key even when
-  it holds nothing.
-- `needmcp list` reports an entry sitting at the other layout's path as
-  `stale v1|v2 layout` rather than `configured`, since the running binary cannot
-  see it.
-- The two layouts **cannot** be combined. 1.x fails the *entire* config with
-  `Invalid input mcp.servers`, hiding every other server.
-- `opencode.json` is the only file written — it is the one name both versions
-  read. Both parse it as JSONC, so comments are still allowed in it.
-- An old `opencode.jsonc` from an earlier CLI release is **read once** to
-  migrate its servers and is never modified or deleted.
-- `opencode mcp add` is used only for 2.x. 1.x's `mcp add` is an interactive
-  wizard with no flags (`--url`, `--header`, `--global` are absent), so it
-  cannot be scripted; 1.x falls back to writing the file directly.
-- `mcp add --header` takes `key=value`, **not** `key: value`.
-- API-key mode must keep the server live and keyed: 1.x needs `"oauth": false`
-  (otherwise Opencode ignores `X-API-Key` and parks the server at *needs
-  authentication* — the exact symptom of "the tool never gets called"); 2.x
-  uses `"disabled": false`.
+- The server always sits at `mcp.needmcp` — **no** `mcp.servers` wrapper. Both
+  versions accept this shape: `opencode2 debug config` shows it after its own
+  internal normalisation, and `opencode mcp list` reads it as-is.
+- `headers` is present in **API-key** mode and absent in **OAuth** mode. In OAuth
+  mode the file is written first, then `opencode mcp auth needmcp` runs — a
+  `mcp auth` cannot resolve a server that is not in the config yet.
+- The file is **edited, not replaced**: only `mcp.needmcp` is inserted or
+  updated. `$schema`, `model`, `agents` and every sibling server survive.
+- Only `opencode.jsonc` is written. `opencode.json` is never read, written or
+  deleted.
+- If `opencode` is not on `PATH`, the config is still written and the exact
+  command to run later is printed.
 - `opencode2 mcp list` is not usable for verification: its background service
   binds to the first project directory it ever saw and keeps serving that one.
   Use `opencode2 debug config` to see what it actually parsed.
@@ -167,7 +159,6 @@ needmcp setup --auth key
 | :--- | :--- |
 | `-k, --key <key>` | Use the provided NeedMCP API key |
 | `-a, --auth <method>` | Auth method: `oauth` or `key` |
-| `-l, --opencode-layout <version>` | Skip the OpenCode version question: `v1` or `v2` |
 
 ### `needmcp remove`
 
@@ -270,7 +261,7 @@ current working directory (via `dotenv`).
 | VS Code | `.vscode/mcp.json` | ✅ |
 | Gemini CLI | `settings.json` | ✅ |
 | GitHub Copilot CLI | `mcp-config.json` | ✅ |
-| Opencode | `opencode.json` (`mcp.<name>` on 1.x, `mcp.servers.<name>` on 2.x) | ✅ |
+| Opencode | `opencode.jsonc` (`mcp.needmcp`) | ✅ |
 | Kiro | `mcp.json` | ✅ |
 | Kilo Code | `mcp.json` | ✅ |
 | Visual Studio 2022 | `.vs/mcp.json` | ✅ |

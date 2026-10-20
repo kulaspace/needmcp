@@ -233,96 +233,52 @@ describe("JSONC configs survive migration", () => {
   });
 });
 
-describe("Opencode opencode.jsonc -> opencode.json migration", () => {
-  it("copies sibling servers into opencode.json and leaves the jsonc file alone", async () => {
-    const { loadMigrationSource, cleanupStrayEntry, getSection } = await import("../mcp-writer.js");
+describe("Opencode writes opencode.jsonc, never opencode.json", () => {
+  it("lists opencode.jsonc as the only write target", async () => {
     const { JSON_CLIENTS } = await import("../clients/json.js");
-    const { detectOpencodeLayout } = await import("../clients/opencode-layout.js");
-
     const opencode = JSON_CLIENTS.find((c) => c.id === "opencode")!;
-    const layout = detectOpencodeLayout();
-    const serversAt = layout === "v2" ? ["mcp", "servers"] : ["mcp"];
-    const legacy = join(dir, "opencode.jsonc");
-    const target = join(dir, "opencode.json");
 
-    // Siblings are written at the path the installed client actually reads,
-    // and the stray `servers` key only exists for 1.x, where it is the marker
-    // of the old broken layout.
-    const legacyConfig =
-      layout === "v2"
-        ? {
-            $schema: "https://opencode.ai/config.json",
-            mcp: {
-              servers: {
-                context7: { type: "remote", url: "https://mcp.context7.com/mcp" },
-                github: { type: "remote", url: "https://api.githubcopilot.com/mcp/" },
-                needmcp: { type: "remote", url },
-              },
-            },
-          }
-        : {
-            $schema: "https://opencode.ai/config.json",
-            mcp: {
-              context7: { type: "remote", url: "https://mcp.context7.com/mcp", enabled: true },
-              github: { type: "remote", url: "https://api.githubcopilot.com/mcp/", enabled: true },
-              servers: { needmcp: { type: "remote", url } },
-            },
-          };
-    const original = JSON.stringify(legacyConfig, null, 2);
-    await writeFile(legacy, original, "utf-8");
+    expect(opencode.projectPaths).toEqual(["opencode.jsonc"]);
+    expect(opencode.globalPaths).toHaveLength(1);
+    expect(opencode.globalPaths![0].endsWith("opencode.jsonc")).toBe(true);
+    // There is no longer a legacy read source: the single format is written
+    // straight into .jsonc, so nothing is migrated out of another file.
+    expect(opencode.legacyPaths ?? []).toHaveLength(0);
+    expect(opencode.legacyProjectPaths ?? []).toHaveLength(0);
+  });
 
-    const source = await loadMigrationSource(target, [legacy]);
-    expect(source).not.toBeNull();
+  it("preserves every existing key when the entry is added", async () => {
+    const { JSON_CLIENTS } = await import("../clients/json.js");
+    const { mergeServerEntry, getSection } = await import("../mcp-writer.js");
+    const opencode = JSON_CLIENTS.find((c) => c.id === "opencode")!;
 
-    // A stray `needmcp` entry under the OTHER layout's path must be dropped:
-    // 1.x fails the whole config on `mcp.servers`, hiding every sibling.
-    const { config: cleaned, removed } = cleanupStrayEntry(
-      source!.config,
-      resolveClientConfigKey(opencode),
-      "needmcp"
-    );
-    if (layout === "v1") expect(removed).toBe(true);
+    const file = join(dir, "opencode.jsonc");
+    const original = {
+      $schema: "https://opencode.ai/config.json",
+      model: { providerID: "9router", model: "Muse" },
+      mcp: {
+        context7: { type: "remote", url: "https://mcp.context7.com/mcp" },
+        github: { type: "remote", url: "https://api.githubcopilot.com/mcp/" },
+      },
+    };
+    await writeFile(file, JSON.stringify(original, null, 2), "utf-8");
 
+    const existing = JSON.parse(await readFile(file, "utf-8"));
     const { config } = mergeServerEntry(
-      cleaned,
+      existing,
       resolveClientConfigKey(opencode),
       "needmcp",
       opencode.buildEntry!(key, url)
     );
-    await writeJsonConfig(target, config);
+    await writeJsonConfig(file, config);
 
-    const written = JSON.parse(await readFile(target, "utf-8"));
-    const servers = getSection(written, serversAt)!;
-    expect(Object.keys(servers)).toEqual(["context7", "github", "needmcp"]);
-    expect(servers.needmcp).toEqual(opencode.buildEntry!(key, url));
-
-    // 1.x must never be handed an `mcp.servers` key: it fails the entire
-    // config and hides every sibling server.
-    if (layout === "v1") {
-      expect(written.mcp.servers).toBeUndefined();
-    }
-
-    // The legacy file must be byte-identical: we read it, never touch it.
-    expect(await readFile(legacy, "utf-8")).toBe(original);
-  });
-
-  it("lists opencode.jsonc as a legacy path so earlier installs are migrated", async () => {
-    const { JSON_CLIENTS } = await import("../clients/json.js");
-    const { loadMigrationSource } = await import("../mcp-writer.js");
-    const opencode = JSON_CLIENTS.find((c) => c.id === "opencode")!;
-
-    // The writable target is json (the only file 2.x reads); jsonc is
-    // legacy-read-only, listed separately per scope so a project run never
-    // clones the global config.
-    expect(opencode.projectPaths).toEqual(["opencode.json"]);
-    expect(opencode.legacyProjectPaths).toContain("opencode.jsonc");
-    expect(opencode.legacyPaths!.some((p) => p.endsWith("opencode.jsonc"))).toBe(true);
-    expect(opencode.legacyPaths).not.toContain("opencode.jsonc");
-
-    // A user who only has opencode.jsonc still gets its servers carried over.
-    const legacy = join(dir, "opencode.jsonc");
-    await writeFile(legacy, JSON.stringify({ mcp: { context7: { type: "remote" } } }), "utf-8");
-    const source = await loadMigrationSource(join(dir, "opencode.json"), [legacy]);
-    expect(source?.config).toEqual({ mcp: { context7: { type: "remote" } } });
+    const written = JSON.parse(await readFile(file, "utf-8"));
+    expect(written.$schema).toBe(original.$schema);
+    expect(written.model).toEqual(original.model);
+    expect(getSection(written, ["mcp"])).toEqual({
+      context7: original.mcp.context7,
+      github: original.mcp.github,
+      needmcp: opencode.buildEntry!(key, url),
+    });
   });
 });

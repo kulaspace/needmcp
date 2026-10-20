@@ -1,6 +1,6 @@
 {
   "name": "needmcp",
-  "version": "1.6.0",
+  "version": "1.6.1",
   "description": "Setup NeedMCP MCP server for AI coding assistants",
   "type": "module",
   "main": "./dist/cli.mjs",
@@ -26,8 +26,6 @@
     "verify:mcp-add": "esbuild scripts/verify-mcp-add.ts --bundle --platform=node --format=esm --outfile=scripts/.tmp/verify-mcp-add.mjs --log-level=error && node scripts/.tmp/verify-mcp-add.mjs",
     "verify:scope": "esbuild scripts/verify-scope.ts --bundle --platform=node --format=esm --outfile=scripts/.tmp/verify-scope.mjs --log-level=error && node scripts/.tmp/verify-scope.mjs",
     "verify:flow": "esbuild scripts/verify-flow.ts --bundle --platform=node --format=esm --outfile=scripts/.tmp/verify-flow.mjs --log-level=error && node scripts/.tmp/verify-flow.mjs",
-    "verify:opencode-version": "esbuild scripts/verify-opencode-version.ts --bundle --platform=node --format=esm --outfile=scripts/.tmp/verify-opencode-version.mjs --log-level=error && node scripts/.tmp/verify-opencode-version.mjs",
-    "verify:opencode-dual": "esbuild scripts/probe-opencode-layout.ts --bundle --platform=node --format=esm --outfile=scripts/.tmp/probe.mjs --log-level=error && esbuild scripts/verify-opencode-dual.ts --bundle --platform=node --format=esm --outfile=scripts/.tmp/verify-opencode-dual.mjs --log-level=error && node scripts/.tmp/verify-opencode-dual.mjs",
     "typecheck": "tsc --noEmit"
   },
   "keywords": [

@@ -5,36 +5,91 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
-
-### Added
-
-- **Ask which OpenCode version you run.** OpenCode 1.x and 2.x install as
-  separate binaries and write config layouts that each *reject* the other's, so
-  exactly one layout can be written. When both are installed, `needmcp setup`
-  now asks which one you use — on **every** run, since the answer is never
-  persisted: switching binaries needs no reset. Verified with both real binaries
-  and with stand-ins on PATH.
-- `--opencode-layout v1|v2` (`-l`) to skip the question. Non-interactive runs
-  without it now **fail** with a message naming the flag, instead of silently
-  picking a layout the running binary would ignore.
-- `needmcp list` reports an entry sitting at the other layout's path as
-  `stale v1|v2 layout`, not `configured`.
-- `scripts/verify-opencode-version.ts` and `scripts/verify-opencode-dual.ts`
-  (`verify:opencode-version`, `verify:opencode-dual`) proving both branches.
+## [1.6.1] - 2026-10-21
 
 ### Fixed
 
-- **Version detection on Windows npm installs.** `where opencode` lists the
-  extensionless shell shim *before* `opencode.cmd`, and that file cannot be
-  spawned — every probe failed, silently degraded to the 1.x layout, and
-  mislabelled a real 2.x install. Candidates are now filtered to executables and
-  batch shims, batch files run through `cmd.exe` with the path kept whole, and
-  the answer is cached so setup pays for one probe instead of several.
-- **Switching OpenCode versions left a broken entry behind.** The stale entry at
-  the other layout's path is now removed in both directions (only `needmcp`), and
-  an emptied `mcp.servers` container is dropped - 1.x rejects the key even when
-  empty, hiding every server.
+- **A cancelled sign-in no longer reads as `authentication failed`.** `opencode
+  mcp auth needmcp` opens an interactive prompt (`Re-authenticate? Yes / No`) and
+  the CLI ran it with `execFileSync`. Without a terminal to answer it, opencode
+  exits non-zero, which the CLI reported as a failed authentication even though
+  nothing was wrong:
+
+  ```
+  Created — wrote mcp.needmcp in opencode.jsonc, but authentication failed
+  (Command failed: opencode mcp auth needmcp). Run `opencode mcp auth needmcp` manually
+  ```
+
+  Sign-in is now driven by the user. When the process has a TTY the prompt is
+  inherited and the user picks Yes/No — the exact behaviour of typing the
+  command themselves. When there is no TTY (an agent, CI, piped output) the
+  command is **not run at all**; the registered server is reported as ready with
+  the command to run later. Either way the login step is never fatal: the entry
+  is already written, and a server awaiting sign-in is recoverable while a hard
+  failure is not.
+- **Sign-in runs through `spawnSync`, not `execFileSync`.** On Windows
+  `execFileSync` routes inherited handles through the shell's pipes, so the
+  prompt never received real keystrokes. `spawnSync` with
+  `stdio: "inherit"` passes stdin/stdout/stderr through untouched.
+- **The reason a sign-in stopped is now reported.** The previous message
+  truncated `err.message` to 200 characters, hiding whether the user cancelled,
+  opencode exited with a code, or the server was unreachable. It now names the
+  exit code or signal.
+- **`mcp add` and the interactive client CLI use the same spawn path**, so a
+  registration prompt behaves consistently; a non-TTY `mcp add` falls back to
+  writing the entry directly instead of reporting a failure.
+
+## [Unreleased]
+
+### Fixed
+
+- **Opencode config is now a single hand-written file: `opencode.jsonc`.** The CLI
+  previously detected the installed binary and chose between two incompatible
+  layouts (`mcp.<name>` vs `mcp.servers.<name>`), asking which version you use on
+  every run. That whole mechanism is gone. Both released binaries accept
+  `mcp.needmcp` in `opencode.jsonc`, so there is one shape, one file, no prompt,
+  and no `--opencode-layout` flag:
+
+  ```jsonc
+  {
+    "$schema": "https://opencode.ai/config.json",
+    "mcp": {
+      "needmcp": {
+        "type": "remote",
+        "url": "https://needmcp.com/mcp",
+        "enabled": true,
+        "headers": { "X-API-Key": "sk-need-..." }
+      }
+    }
+  }
+  ```
+
+  `headers` is written in API-key mode and omitted in OAuth mode.
+- **Setup no longer freezes after the scope prompt.** Detection used
+  `execFileSync`, which stops the Node event loop entirely - measured at **0 timer
+  ticks over 2.5s** - so the terminal sat blank while nothing could animate.
+  Client detection is now async (`execFile`) and probed in parallel, leaving the
+  loop alive throughout.
+- **Every slow step now shows a spinner**: detecting installed clients and
+  resolving the endpoint. On a non-TTY (CI, piped output) the spinner is skipped
+  and the same step is logged as a plain line, so logs stay free of escape codes.
+- `checkCliClient` probed one tool at a time with a blocking `where` call; it now
+  runs them concurrently and asynchronously.
+
+### Added
+
+- **`opencode mcp auth needmcp` runs after the file is written** in OAuth mode.
+  Order matters: a `mcp auth` cannot resolve a server that is not in the config
+  yet. If the `opencode` binary is missing, the config is still written and the
+  exact command is printed to run later.
+- `scripts/verify-flow.ts` and `scripts/verify-mcp-add.ts` now assert the write is
+  an **edit, not a replace**: `$schema`, `model`, `agents` and every sibling
+  server survive, and `opencode.json` is never created or touched.
+- `detectPaths` is honoured for every client format. Opencode now carries
+  `["opencode", "opencode2"]`, so a fresh install shows as `detected` (and sorts
+  with the other installed clients) instead of `not found` at the bottom of the
+  picker. The list had previously treated "no config file yet" as "not
+  installed" for every JSON client.
 
 - **OAuth 2.1 client support across 14 clients.** `ClientConfig` now carries an
   `oauth` capability (`mode`, `addArgs`, `loginArgs`, `buildEntry`) instead of the
@@ -66,16 +121,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   never reads the global legacy config, and that a global run still migrates.
 - `scripts/verify-mcp-add.ts` (`npm run verify:mcp-add`) — proves
   `opencode mcp add` writes only the needmcp entry, copying no user config.
-- `src/clients/opencode-layout.ts` — version detection and the two Opencode entry
-  shapes, each citing the binary behaviour it encodes.
-- `legacyProjectPaths` on `ClientConfig`, so legacy migration sources are resolved
-  per scope instead of mixing global and project files.
-- `legacyPaths` on `ClientConfig`, for files that are read for migration but
-  never written.
 - Live server tests (`src/__tests__/live-server.test.ts`) that assert the
   backend's actual behaviour: RFC 9728/8414 discovery, RFC 7591 registration,
   PKCE S256, the `invalid_grant`/`invalid_token` error shapes, and the
   `X-API-Key`-before-`Bearer` precedence.
+
 
 ### Changed
 
@@ -93,47 +143,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `needmcp setup` now prompts per client ("How should \<Client\> authenticate to
   NeedMCP?") with **OAuth 2.1 preselected**, and `--auth oauth`/`--auth key` still
   short-circuit the prompt.
-- Opencode is now routed through the shared capability model, including its
-  `mcp add` step, so the client definition describes the whole flow instead of
-  `setup.ts` special-casing it.
+- Opencode is now routed through the shared capability model, so the client
+  definition describes the whole flow instead of `setup.ts` special-casing it.
 
 ### Fixed
 
-- **Opencode servers were registered but never called.** Verified against
-  `opencode` 1.2.27 and `opencode2` 2.0.32, which turn out to use incompatible
-  layouts that each reject the other's:
-
-  | | 1.2.27 | 2.0.32 |
-  | :--- | :--- | :--- |
-  | Config key | `mcp.<name>` | `mcp.servers.<name>` |
-  | Entry | `{type, url, enabled, oauth, headers}` | `{type, url, headers, disabled}` |
-  | Reads `opencode.json` | yes | yes |
-  | Reads `opencode.jsonc` | yes | **no** |
-
-  - *Wrong schema for the installed version.* A single hard-coded layout served
-    neither version: 1.x fails the whole config on `mcp.servers`
-    (`Invalid input mcp.servers`, hiding every sibling), and 2.x never looks at
-    `mcp.<name>`. `clients/opencode-layout.ts` now detects the installed binary
-    and emits the matching key and entry shape. A stray entry under the other
-    layout's path is removed on write.
-  - *OAuth silently on.* Opencode enables OAuth for every remote server unless
-    told otherwise, and while OAuth is active it ignores `X-API-Key` and parks the
-    server at *needs authentication*. API-key mode now writes `"oauth": false`
-    for 1.x and `"disabled": false` for 2.x.
-  - *Config file the binary does not read.* `opencode.jsonc` is invisible to 2.x
-    ("No MCP servers configured"). `opencode.json` is now the only write target —
-    the single filename both versions read, and both parse it as JSONC. A leftover
-    `opencode.jsonc` is read once to migrate its servers and is never modified.
-- **`opencode mcp add` was invoked with flags the binary does not accept.**
-  Opencode 1.x's `mcp add` is an interactive wizard with no flags at all, and
-  2.x's `--header` takes `key=value`, not `key: value`. `mcp add` is now used only
-  when 2.x is installed; 1.x writes the config directly. Sign-in via
-  `opencode mcp auth needmcp` works in both versions and is unchanged.
-- **A project-scope run cloned the global config.** `legacyPaths` mixed global and
-  project paths, so any project without a target file was seeded from
-  `~/.config/opencode/*`, dragging in its providers, plugins and agents.
-  Legacy sources are now resolved per scope (`legacyPaths` vs
-  `legacyProjectPaths`): a project run reads only project-scope legacy files.
 - **`.env` was ignored unless the CLI was launched from its own directory.**
   `dotenv/config` loads relative to the process cwd, and `constants.ts` read
   `process.env` at import time — before the entry module's body ran under ESM
@@ -142,7 +156,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the default endpoints are lazy getters instead of top-level constants.
   `setup` also prints the resolved endpoint and flags when it came from the
   environment.
-- Comments in `opencode.json` are dropped silently on rewrite; the CLI now warns
+- Comments in `opencode.jsonc` are dropped silently on rewrite; the CLI now warns
   before doing it.
 
 ### Security

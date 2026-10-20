@@ -118,8 +118,8 @@ describe("exchangeCodeForApiKey", () => {
     const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
     expect(url).toBe("https://needmcp.com/oauth/cli/token");
     expect(init.method).toBe("POST");
-    expect((init.headers as Record<string, string>)["User-Agent"]).toBe(
-      "needmcp-cli/1.6.0"
+    expect((init.headers as Record<string, string>)["User-Agent"]).toMatch(
+      /^needmcp-cli\/\d+\.\d+\.\d+$/
     );
     expect(JSON.parse(init.body as string)).toEqual({
       code: "AUTH_CODE_12345",

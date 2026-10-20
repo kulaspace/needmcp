@@ -1,17 +1,23 @@
 import { access } from "node:fs/promises";
 import { join } from "node:path";
 import { homedir } from "node:os";
-import { execFileSync } from "node:child_process";
+import { execFile as execFileCb } from "node:child_process";
+import { promisify } from "node:util";
 import { readJsonConfig, getSection } from "../mcp-writer.js";
 import type { ClientConfig, DetectedClient } from "./types.js";
 import { resolveClientConfigKey } from "./types.js";
-import { opencodeConfigKey } from "./opencode-layout.js";
 import { JSON_CLIENTS } from "./json.js";
 import { CLI_CLIENTS } from "./cli.js";
 import { TOML_CLIENTS } from "./toml.js";
 import { uiClients } from "./ui.js";
 
 export type { ClientConfig, DetectedClient } from "./types.js";
+
+const execFileAsync = promisify(execFileCb);
+
+function isWindows(): boolean {
+  return process.platform === "win32";
+}
 
 /**
  * Every known client, built per call.
@@ -53,22 +59,6 @@ async function checkJsonClient(client: ClientConfig, scope?: "global" | "project
       const config = await readJsonConfig(resolved);
       const name = client.serverName ?? "needmcp";
 
-      // Opencode has two incompatible layouts. A server sitting only under the
-      // OTHER one is not "configured": the running binary will not see it. It is
-      // reported as stale so setup asks which version the user runs instead of
-      // claiming everything is fine.
-      if (client.id === "opencode") {
-        const v1Has = !!getSection(config, opencodeConfigKey("v1"))?.[name];
-        const v2Has = !!getSection(config, opencodeConfigKey("v2"))?.[name];
-        return {
-          ...client,
-          detected: true,
-          configured: v1Has || v2Has,
-          configPath: resolved,
-          ...(v1Has !== v2Has ? { staleLayout: v1Has ? "v1" : "v2" } : {}),
-        };
-      }
-
       const key = resolveClientConfigKey(client);
       const section = getSection(config, key);
       const configured = !!(section && name in section);
@@ -90,7 +80,32 @@ async function checkJsonClient(client: ClientConfig, scope?: "global" | "project
     } catch {}
   }
 
+  // No config file yet. A JSON client may still be installed — its binary is on
+  // PATH — and that is what puts it near the top of the list instead of among
+  // the `not found` entries. `detectPaths` used to be honoured only for
+  // `format: "cli"`, so a freshly installed client with no config file read as
+  // absent and was effectively invisible in the picker.
+  if (await anyBinaryExists(client.detectPaths)) {
+    return { ...client, detected: true, configured: false };
+  }
+
   return { ...client, detected: false, configured: false };
+}
+
+/** True when any of `bins` resolves on PATH. Probed in parallel. */
+async function anyBinaryExists(bins: string[] | undefined): Promise<boolean> {
+  if (!bins || bins.length === 0) return false;
+  const results = await Promise.all(
+    bins.map(async (bin) => {
+      try {
+        await execFileAsync(isWindows() ? "where" : "which", [bin]);
+        return true;
+      } catch {
+        return false;
+      }
+    })
+  );
+  return results.some(Boolean);
 }
 
 async function checkTomlClient(client: ClientConfig, scope?: "global" | "project"): Promise<DetectedClient> {
@@ -109,13 +124,21 @@ async function checkTomlClient(client: ClientConfig, scope?: "global" | "project
 
 async function checkCliClient(client: ClientConfig): Promise<DetectedClient> {
   const tools = client.detectPaths ?? [];
-  for (const tool of tools) {
-    try {
-      const cmd = process.platform === "win32" ? "where" : "which";
-      execFileSync(cmd, [tool], { stdio: "ignore" });
-      return { ...client, detected: true, configured: false };
-    } catch {}
-  }
+  // `where` costs ~300ms on Windows and this used to run one at a time, sync,
+  // freezing the UI for the whole sweep. Async + parallel keeps setup responsive
+  // and makes the sweep cost one lookup instead of one per tool.
+  const results = await Promise.all(
+    tools.map(async (tool) => {
+      try {
+        await execFileAsync(isWindows() ? "where" : "which", [tool]);
+        return true;
+      } catch {
+        return false;
+      }
+    })
+  );
+
+  if (results.some(Boolean)) return { ...client, detected: true, configured: false };
   return { ...client, detected: false, configured: false };
 }
 

@@ -1,18 +1,19 @@
-import { mkdtemp, rm, readFile, readdir, writeFile } from "node:fs/promises";
+import { mkdtemp, rm, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
 import { JSON_CLIENTS } from "../src/clients/json.js";
-import { loadMigrationSource, readJsonConfig, mergeServerEntry, writeJsonConfig, getSection } from "../src/mcp-writer.js";
+import { readJsonConfig, mergeServerEntry, writeJsonConfig, getSection } from "../src/mcp-writer.js";
 import { resolveClientConfigKey } from "../src/clients/types.js";
 
 /**
  * Regression guard: a PROJECT-scope setup must never pull the user's GLOBAL
  * config into the project file.
  *
- * The bug: `legacyPaths` listed both the global and the project `opencode.json`.
- * Whenever the project had no target file, the global one was treated as a
- * migration source and its providers/plugins/agents were cloned into the project.
+ * There is no migration any more — `opencode.jsonc` is both the read and the
+ * write target — so the only way global data could leak in is if the writer
+ * ever read a different file. This asserts the project file starts empty and
+ * ends up holding nothing but our own entry.
  */
 
 const opencode = JSON_CLIENTS.find((c) => c.id === "opencode")!;
@@ -36,27 +37,16 @@ const globalConfig = {
   agent: { explorer: { model: "x" } },
   mcp: { context7: { type: "remote", url: "https://mcp.context7.com/mcp" } },
 };
-const globalJson = join(fakeGlobalDir, "opencode.jsonc");
-await writeFile(globalJson, JSON.stringify(globalConfig, null, 2));
+await writeFile(join(fakeGlobalDir, "opencode.jsonc"), JSON.stringify(globalConfig, null, 2));
 
-// Project has no opencode.json and no local opencode.jsonc.
-const target = join(projectDir, "opencode.json");
+// Project has no config file at all.
+const target = join(projectDir, "opencode.jsonc");
 
-// Mirrors setupJsonClient's project-scope candidate selection.
-const legacyProject = (opencode.legacyProjectPaths ?? []).map((p) => join(projectDir, p));
-const migration = await loadMigrationSource(target, legacyProject);
+const existing = await readJsonConfig(target);
+check("project config starts empty", JSON.stringify(existing) === "{}", JSON.stringify(existing));
 
-check("project scope finds no legacy source", migration === null,
-  `would have read ${migration?.from ?? "nothing"}`);
-
-const existing = migration ? migration.config : await readJsonConfig(target);
 const serversAt = resolveClientConfigKey(opencode);
-const { config } = mergeServerEntry(
-  existing,
-  serversAt,
-  "needmcp",
-  opencode.buildEntry!(key, url)
-);
+const { config } = mergeServerEntry(existing, serversAt, "needmcp", opencode.buildEntry!(key, url));
 await writeJsonConfig(target, config);
 
 const written = JSON.parse(await readFile(target, "utf-8"));
@@ -68,14 +58,15 @@ check("no agent leaked", written.agent === undefined);
 check("no global mcp server leaked", JSON.stringify(written).includes("context7") === false);
 
 const servers = getSection(written, serversAt)!;
-check("needmcp present at the layout's server path", servers.needmcp?.url === url, serversAt.join("."));
+check("needmcp present at mcp.needmcp", (servers.needmcp as Record<string, unknown>)?.url === url);
 check("no sibling server cobbled in", JSON.stringify(Object.keys(servers)) === '["needmcp"]');
 
-// And GLOBAL scope still migrates: the same fixture, passed as the global
-// candidate, must be read (the real global path is swapped for the fixture).
-const globalTarget = join(fakeGlobalDir, "opencode.json");
-const direct = await loadMigrationSource(globalTarget, [globalJson]);
-check("global scope DOES migrate the global file", direct !== null);
+// The global file must be untouched by the project run.
+const globalAfter = JSON.parse(await readFile(join(fakeGlobalDir, "opencode.jsonc"), "utf-8"));
+check(
+  "global config untouched",
+  JSON.stringify(globalAfter) === JSON.stringify(globalConfig)
+);
 
 await rm(fakeGlobalDir, { recursive: true, force: true });
 await rm(projectDir, { recursive: true, force: true });

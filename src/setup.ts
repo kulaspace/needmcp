@@ -1,20 +1,12 @@
-import { intro, outro, cancel, isCancel, text, select, confirm } from "@clack/prompts";
+import { intro, outro, cancel, isCancel, text, select, confirm, spinner, log } from "@clack/prompts";
 import pc from "picocolors";
-import { execFileSync } from "node:child_process";
+import { spawnSync } from "node:child_process";
 import { join } from "node:path";
-import { readJsonConfig, writeJsonConfig, mergeServerEntry, appendTomlServer, removeServerEntry, removeTomlServer, hasJsonComments, loadMigrationSource, cleanupStrayEntry, getSection, toKeyPath } from "./mcp-writer.js";
+import { readJsonConfig, writeJsonConfig, mergeServerEntry, appendTomlServer, removeServerEntry, removeTomlServer, hasJsonComments, getSection, toKeyPath } from "./mcp-writer.js";
 import { loadConfig, saveConfig, resolveMcpUrl, resolveBaseUrl } from "./config.js";
 import { allClients, detectAllClients, resolvePath, resolveClientPaths } from "./clients/index.js";
 import { resolveClientConfigKey } from "./clients/types.js";
 import type { ClientConfig, DetectedClient } from "./clients/index.js";
-import { commandExists, resolveOpencodeBinary, canScriptMcpAdd, buildOpencodeAddArgs } from "./clients/opencode-cli.js";
-import {
-  detectOpencodeLayouts,
-  needsLayoutChoice,
-  opencodeConfigKey,
-  type DetectedOpencode,
-  type OpencodeLayout,
-} from "./clients/opencode-layout.js";
 import { formatOAuthCommand } from "./clients/oauth-clients.js";
 import { CliError } from "./errors.js";
 import { validateApiKey } from "./validation.js";
@@ -48,91 +40,38 @@ function canDriveNativeOAuth(client: ClientConfig): boolean {
 }
 
 /**
- * Ask which Opencode the user runs, when it matters.
+ * Run a slow step behind a spinner.
  *
- * Opencode 1.x and 2.x install as separate binaries and write config layouts
- * that each reject the other's, so exactly one must be chosen per run. Three
- * outcomes:
- *
- *  - client is not Opencode            → undefined, no prompt
- *  - only one version installed        → that version, no prompt
- *  - both installed, no TTY            → fail, naming the flag
- *  - both installed                    → the user chooses, EVERY time. Nothing
- *    is persisted, so switching binaries between runs needs no reset.
- *
- * `--opencode-layout` short-circuits the question for CI and for anyone who
- * does not want to be asked.
+ * Every step that spawns a process or hits the network goes through here: the
+ * terminal used to sit blank for seconds after the scope prompt, which reads as
+ * a hang. On a non-TTY (CI, piped output) the spinner would write escape codes
+ * into the log, so it is skipped and the message is logged once instead.
  */
-async function promptOpencodeLayout(
-  client: ClientConfig,
-  override?: OpencodeLayout
-): Promise<OpencodeLayout | undefined> {
-  if (client.id !== "opencode") return undefined;
-
-  const detected = detectOpencodeLayouts();
-  if (detected.length === 0) return override ?? "v1";
-
-  if (override) return override;
-
-  if (!needsLayoutChoice(detected)) return detected[0].layout;
-
-  // Two layouts, no one to ask. Guessing here is exactly how a user ends up
-  // with a config their binary silently ignores — which looks like "needmcp is
-  // broken" rather than "the wrong layout was written". Refuse instead.
-  if (!process.stdin.isTTY) {
-    throw new CliError(layoutChoiceRequiredMessage(detected));
+async function withSpinner<T>(label: string, work: () => Promise<T>, done?: (r: T) => string): Promise<T> {
+  if (!process.stdout.isTTY) {
+    log.info(label);
+    const result = await work();
+    if (done) log.success(done(result));
+    return result;
   }
 
-  const selected = await select({
-    message: "Both OpenCode versions are installed. Which one do you use?",
-    options: detected.map((d) => ({
-      value: d.layout,
-      label: `${d.binary} ${versionSuffix(d.version)}`,
-      hint:
-        d.layout === "v2"
-          ? "writes mcp.servers.<name> to opencode.json"
-          : "writes mcp.<name> to opencode.json",
-    })),
-  });
-
-  if (isCancel(selected) || !selected) {
-    cancel("Setup cancelled");
-    throw new CliError("Setup cancelled");
+  const s = spinner();
+  s.start(label);
+  try {
+    const result = await work();
+    s.stop(done ? done(result) : label);
+    return result;
+  } catch (err) {
+    s.stop(pc.red(`${label} failed`), 1);
+    throw err;
   }
-
-  // Say the shape out loud — picking the wrong one writes a config the running
-  // binary silently ignores, which is the exact bug this prompt prevents.
-  console.log(
-    `  ${pc.dim("OpenCode layout:")} ${pc.cyan(selected)} ` +
-      pc.dim(`(${opencodeConfigKey(selected).join(".")})`)
-  );
-
-  return selected;
 }
 
-/** `2.0.32` for "opencode v2.0.32", else the raw string, else "unknown". */
-function versionSuffix(version: string | null): string {
-  if (!version) return "(version unknown)";
-  return version.match(/\d+\.\d+\.\d+/)?.[0] ?? version;
-}
-
-/**
- * The refusal shown when both versions are installed and nobody can be asked.
- *
- * Exported and kept separate from the prompt so the wording — which must name
- * the flag, since that is the only way out — is testable without a TTY.
- */
-export function layoutChoiceRequiredMessage(detected: DetectedOpencode[]): string {
-  const installed = detected
-    .map((d) => `${d.binary} ${versionSuffix(d.version)} -> ${d.layout}`)
-    .join(", ");
-  return (
-    `Both OpenCode versions are installed (${installed}) and they use ` +
-    `incompatible config layouts.\n` +
-    `  Pick one explicitly:  needmcp setup --opencode-layout v1|v2\n` +
-    `    v1 writes mcp.<name>          (opencode 1.x)\n` +
-    `    v2 writes mcp.servers.<name>  (opencode 2.x)`
-  );
+/** One line describing what detection found, for the spinner's final frame. */
+function describeDetectedClients(detected: DetectedClient[]): string {
+  const ready = detected.filter((d) => d.configured).length;
+  const found = detected.filter((d) => d.detected && !d.configured).length;
+  return `Found ${ready} configured, ${found} detected`;
 }
 
 function statusIcon(dc: DetectedClient): string {
@@ -142,7 +81,6 @@ function statusIcon(dc: DetectedClient): string {
 }
 
 function statusText(dc: DetectedClient): string {
-  if (dc.staleLayout) return pc.yellow(`stale ${dc.staleLayout} layout`);
   if (dc.configured) return pc.green("configured");
   if (dc.detected) return pc.yellow("detected");
   return pc.dim("not found");
@@ -325,8 +263,7 @@ async function setupJsonClient(
   apiKey: string | undefined,
   mcpUrl: string,
   scope?: "global" | "project",
-  useOAuthEntry?: boolean,
-  layout?: string
+  useOAuthEntry?: boolean
 ): Promise<SetupResult> {
   const paths = resolveClientPaths(client, scope);
 
@@ -336,47 +273,10 @@ async function setupJsonClient(
 
   const resolved = resolvePath(paths[0]);
 
-  // `mcp add` belongs to Opencode 2.x only: 1.x's variant is a TUI wizard with
-  // no flags. It is also only safe when the user actually chose v2, otherwise
-  // the binary would write the layout they did not ask for.
-  if (
-    client.id === "opencode" &&
-    canScriptMcpAdd() &&
-    !useOAuthEntry &&
-    (layout === undefined || layout === "v2")
-  ) {
-    const bin = resolveOpencodeBinary();
-    const addArgs = buildOpencodeAddArgs({ mcpUrl, scope: scope ?? "global", apiKey });
-    const run = runClientBinary(bin, addArgs);
-    if (!run.ok) {
-      return {
-        clientId: client.id,
-        clientName: client.name,
-        success: false,
-        message: `${bin} mcp add failed: ${run.output}`,
-      };
-    }
-    return {
-      clientId: client.id,
-      clientName: client.name,
-      success: true,
-      message: "Registered via `opencode mcp add`",
-    };
-  }
-
-  // Seed from a legacy file only when the target does not exist yet, and only
-  // from the SAME scope: a project-scope run must never clone the global config
-  // into the project. The legacy file is read only — never rewritten/deleted.
-  const legacyCandidates =
-    scope === "project"
-      ? (client.legacyProjectPaths ?? []).map((p) => join(process.cwd(), p))
-      : (client.legacyPaths ?? []).map((p) => resolvePath(p));
-  const migration = await loadMigrationSource(resolved, legacyCandidates);
-
-  const existing = migration ? migration.config : await readJsonConfig(resolved);
+  const existing = await readJsonConfig(resolved);
 
   // Comments do not survive a re-serialisation, so warn before they are lost.
-  if (!migration && (await hasJsonComments(resolved))) {
+  if (existing && (await hasJsonComments(resolved))) {
     console.warn(
       pc.yellow(
         `  ! ${resolved} contains comments; they will be removed when the file is rewritten.`
@@ -396,32 +296,20 @@ async function setupJsonClient(
     if (!client.buildEntry) {
       return { clientId: client.id, clientName: client.name, success: false, message: "No entry builder defined" };
     }
-    entry = client.buildEntry(apiKey, mcpUrl, layout);
+    entry = client.buildEntry(apiKey, mcpUrl);
   }
 
-  const key = resolveClientConfigKey(client, layout);
+  const key = resolveClientConfigKey(client);
   const name = client.serverName ?? "needmcp";
 
-  // Drop an entry still sitting at the other layout's path: either an older CLI
-  // release wrote it, or the user just switched which Opencode they run. 1.x
-  // rejects `mcp.servers` outright, so leaving it would hide every server.
-  const { config: cleaned, removed: strayRemoved } = cleanupStrayEntry(existing, key, name);
-
-  const { config, alreadyExists } = mergeServerEntry(cleaned, key, name, entry);
+  // Merge into what is already there — other keys (`model`, `agents`) and every
+  // sibling server are carried over untouched. Never replace the whole file.
+  const { config, alreadyExists } = mergeServerEntry(existing, key, name, entry);
   await writeJsonConfig(resolved, config);
 
   const messages: string[] = [alreadyExists ? "Updated" : "Created"];
-  if (strayRemoved) {
-    const strayPath = toKeyPath(key).join(".") === "mcp.servers" ? "mcp.needmcp" : "mcp.servers.needmcp";
-    messages.push(`removed stale ${strayPath} entry (other OpenCode layout)`);
-  }
-  if (layout) {
-    messages.push(`OpenCode layout ${layout} (${toKeyPath(key).join(".")}.${name})`);
-  }
-  if (migration) {
-    messages.push(
-      `migrated existing servers from ${migration.from} (that file is no longer read and can be removed)`
-    );
+  if (client.id === "opencode") {
+    messages.push(`wrote ${toKeyPath(key).join(".")}.${name} in ${resolved}`);
   }
 
   return {
@@ -432,20 +320,79 @@ async function setupJsonClient(
   };
 }
 
+/**
+ * True when this process has a real terminal the child can inherit.
+ *
+ * `opencode mcp auth` opens an interactive clack prompt ("Re-authenticate?
+ * Yes / No"), so it needs keyboard input. Without a TTY (an agent, CI, a pipe)
+ * the prompt cannot be answered, and opencode exits non-zero — which is not an
+ * authentication failure, just an unusable environment.
+ */
+function hasInteractiveTerminal(): boolean {
+  return Boolean(process.stdin.isTTY && process.stdout.isTTY);
+}
+
+/**
+ * Run a client's own CLI, in the user's terminal.
+ *
+ * These commands are interactive: `opencode mcp auth needmcp` starts a browser
+ * OAuth flow and prints its progress on stdout, so stdio is inherited and the
+ * terminal is the UI.
+ *
+ * Nothing is inspected beforehand — no binary lookup, no version probe, no
+ * pre-flight check. The command is run exactly as the user would type it. If a
+ * particular shell setup makes it fail, the command is printed so the user can
+ * run it themselves.
+ *
+ * The caller decides whether the exit code is fatal. A non-zero exit here
+ * usually means the user answered "No" to a prompt or cancelled the browser
+ * flow — a decision, not a failure — so the outcome is reported, never thrown.
+ */
 function runClientBinary(
   bin: string,
   args: string[]
-): { ok: boolean; output: string } {
-  process.stdout.write(`\n    Running: ${pc.dim(formatOAuthCommand(bin, args))}\n\n`);
-  try {
-    execFileSync(bin, args, { stdio: "inherit", timeout: 120000 });
-    process.stdout.write("\n");
-    return { ok: true, output: "" };
-  } catch (err) {
-    process.stdout.write("\n");
-    const msg = err instanceof Error ? err.message : String(err);
-    return { ok: false, output: msg.slice(0, 200) };
+): { ok: boolean; skipped: boolean; output: string } {
+  const command = formatOAuthCommand(bin, args);
+
+  // Hand the prompt to the user when there is a terminal to show it in.
+  // Otherwise there is nothing to answer, so print the command and move on.
+  if (!hasInteractiveTerminal()) {
+    return {
+      ok: false,
+      skipped: true,
+      output: "no interactive terminal",
+    };
   }
+
+  process.stdout.write(`\n    Running: ${pc.dim(command)}\n\n`);
+
+  // `shell: true` so a Windows `.cmd` shim resolves the same way it does when
+  // the user types the command in their own terminal. stdin/stdout/stderr are
+  // all inherited, so the prompt sees real keystrokes and the browser flow is
+  // visible. `spawnSync` (not `execFileSync`) keeps the inherited handles
+  // intact on Windows instead of routing them through the shell's pipes.
+  const result = spawnSync(command, [], { stdio: "inherit", shell: true });
+  process.stdout.write("\n");
+
+  if (result.error) {
+    return {
+      ok: false,
+      skipped: false,
+      output: String(result.error.message).slice(0, 200),
+    };
+  }
+
+  if (result.status === 0) {
+    return { ok: true, skipped: false, output: "" };
+  }
+
+  // Surface the signal/exit code so "user cancelled" is distinguishable from
+  // "server unreachable" in the final message.
+  const reason =
+    result.signal !== null
+      ? `cancelled (${result.signal})`
+      : `exited with code ${result.status ?? "unknown"}`;
+  return { ok: false, skipped: false, output: reason };
 }
 
 /**
@@ -454,12 +401,13 @@ function runClientBinary(
  * Two shapes are supported:
  *
  *  - the client has an `mcp add` command → run it, then the login command.
- *  - the client has no usable `add` command (Opencode 1.x has none) → write
- *    the header-free entry to the config file directly, then run login.
+ *  - the client has no usable `add` command (Opencode) → write the header-free
+ *    entry to the config file directly, then run login. For Opencode the file
+ *    is edited first and `opencode mcp auth needmcp` runs afterwards; `mcp auth`
+ *    cannot resolve a server that is not in the config yet.
  *
  * Order matters and mirrors every client's docs: the server is registered
- * first, then authenticated. A `mcp auth` command cannot resolve a server that
- * is not in the config yet.
+ * first, then authenticated.
  *
  * Failure handling is deliberately non-destructive:
  *
@@ -476,39 +424,38 @@ function runClientBinary(
 async function runNativeOAuth(
   client: ClientConfig,
   mcpUrl: string,
-  scope: "global" | "project",
-  layout?: string
+  scope: "global" | "project"
 ): Promise<SetupResult> {
   const oauth = client.oauth;
-  const declared = oauth?.binary;
+  const bin = oauth?.binary;
 
-  if (!declared) {
+  if (!bin) {
     // Defensive: canDriveNativeOAuth() should have prevented this.
-    return setupClient(client, undefined, mcpUrl, scope, true, "native-oauth", layout);
+    return setupClient(client, undefined, mcpUrl, scope, true, "native-oauth");
   }
 
-  // Opencode 1.x installs as `opencode`, 2.x as `opencode2`; pick the one that
-  // is actually present so `mcp auth` runs at all.
-  const bin = client.id === "opencode" ? resolveOpencodeBinary() : declared;
-
-  // `mcp add` only exists as a scriptable command in 2.x. When the user chose
-  // the 1.x layout, calling it would register the server in the other layout,
-  // so the entry is written directly instead.
-  const addArgsRaw = oauth?.addArgs?.(mcpUrl, scope);
-  const addArgs = layout === "v1" && client.id === "opencode" ? null : addArgsRaw;
+  const addArgs = oauth?.addArgs?.(mcpUrl, scope);
   const loginArgs = oauth?.loginArgs?.();
   const loginHint = loginArgs ? formatOAuthCommand(bin, loginArgs) : null;
 
   const register = async (): Promise<SetupResult> => {
     if (addArgs) {
       const add = runClientBinary(bin, addArgs);
-      if (!add.ok) {
+      // No terminal: still safe to skip, because `mcp add` writes the same
+      // entry the OAuth path would write, and the user can re-run it.
+      if (!add.ok && !add.skipped) {
         return {
           clientId: client.id,
           clientName: client.name,
           success: false,
           message: `${bin} mcp add failed: ${add.output}`,
         };
+      }
+      if (!add.ok) {
+        // Nothing was registered by the client's CLI, so fall back to writing
+        // the header-free entry ourselves — the server must exist before the
+        // sign-in command can resolve it.
+        return setupClient(client, undefined, mcpUrl, scope, true, "native-oauth");
       }
       return {
         clientId: client.id,
@@ -519,23 +466,10 @@ async function runNativeOAuth(
     }
 
     // No `add` command: write the header-free entry ourselves.
-    return setupClient(client, undefined, mcpUrl, scope, true, "native-oauth", layout);
+    return setupClient(client, undefined, mcpUrl, scope, true, "native-oauth");
   };
 
   const addHint = addArgs ? formatOAuthCommand(bin, addArgs) : null;
-  const manualSteps = [addHint, loginHint].filter(Boolean).join(" then ");
-
-  if (!commandExists(bin)) {
-    const fallback = await register();
-    if (!fallback.success) return fallback;
-    const steps = manualSteps
-      ? `Run \`${manualSteps}\``
-      : `Finish sign-in inside ${client.name}`;
-    return {
-      ...fallback,
-      message: `Created without auth — \`${bin}\` not found on PATH. ${steps}`,
-    };
-  }
 
   const registered = await register();
   if (!registered.success) return registered;
@@ -551,11 +485,21 @@ async function runNativeOAuth(
 
   const auth = runClientBinary(bin, loginArgs);
   if (!auth.ok) {
+    // The entry is written, so the server is registered and usable as soon as
+    // the user signs in. Never fail the setup over a cancelled prompt.
+    if (auth.skipped) {
+      return {
+        clientId: client.id,
+        clientName: client.name,
+        success: true,
+        message: `${registered.message} — sign in from your terminal: \`${loginHint}\``,
+      };
+    }
     return {
       clientId: client.id,
       clientName: client.name,
       success: true,
-      message: `Server added, but authentication failed (${auth.output}). Run \`${loginHint}\` manually`,
+      message: `${registered.message} — sign-in not completed (${auth.output}). Run \`${loginHint}\` whenever you're ready`,
     };
   }
 
@@ -563,7 +507,7 @@ async function runNativeOAuth(
     clientId: client.id,
     clientName: client.name,
     success: true,
-    message: `Added and authenticated via ${client.name} OAuth`,
+    message: `${registered.message} and authenticated via ${client.name} OAuth`,
   };
 }
 
@@ -630,15 +574,25 @@ async function setupCliClient(
   }
 
   process.stdout.write(`\n    Running: ${pc.dim(cmd)}\n\n`);
-  try {
-    execFileSync(cmd, [], { stdio: "inherit", timeout: 120000, shell: true });
-    process.stdout.write("\n");
-    return { clientId: client.id, clientName: client.name, success: true, message: "CLI command succeeded" };
-  } catch (err) {
-    process.stdout.write("\n");
-    const msg = err instanceof Error ? err.message : String(err);
-    return { clientId: client.id, clientName: client.name, success: false, message: msg.slice(0, 200) };
+  // Inherit all three handles so an interactive `mcp add` behaves exactly as
+  // if the user typed it. `spawnSync` keeps those handles on Windows instead of
+  // routing them through the shell's pipes the way `execFileSync` does.
+  const result = spawnSync(cmd, [], { stdio: "inherit", timeout: 120000, shell: true });
+  process.stdout.write("\n");
+
+  if (result.error) {
+    return {
+      clientId: client.id,
+      clientName: client.name,
+      success: false,
+      message: String(result.error.message).slice(0, 200),
+    };
   }
+  if (result.status !== 0) {
+    const reason = result.signal !== null ? `cancelled (${result.signal})` : `exited with code ${result.status ?? "unknown"}`;
+    return { clientId: client.id, clientName: client.name, success: false, message: reason };
+  }
+  return { clientId: client.id, clientName: client.name, success: true, message: "CLI command succeeded" };
 }
 
 async function setupClient(
@@ -647,12 +601,11 @@ async function setupClient(
   mcpUrl: string,
   scope?: "global" | "project",
   useOAuthEntry?: boolean,
-  _authChoice?: AuthChoice,
-  layout?: string
+  _authChoice?: AuthChoice
 ): Promise<SetupResult> {
   switch (client.format) {
     case "json":
-      return setupJsonClient(client, apiKey, mcpUrl, scope, useOAuthEntry, layout);
+      return setupJsonClient(client, apiKey, mcpUrl, scope, useOAuthEntry);
     case "toml":
       return setupTomlClient(client, apiKey, mcpUrl, scope, useOAuthEntry);
     case "cli":
@@ -664,12 +617,15 @@ async function setupClient(
 
 export async function runSetup(
   providedKey?: string,
-  authMode?: AuthMode,
-  layoutOverride?: OpencodeLayout
+  authMode?: AuthMode
 ): Promise<void> {
   intro(pc.bgCyan(pc.black(" needmcp setup ")));
 
-  const detected = await detectAllClients();
+  const detected = await withSpinner(
+    "Detecting installed AI clients...",
+    () => detectAllClients(),
+    describeDetectedClients
+  );
 
   const sortWeight = (dc: DetectedClient): number => dc.configured ? 0 : dc.detected ? 1 : 2;
   detected.sort((a, b) => sortWeight(a) - sortWeight(b));
@@ -717,12 +673,6 @@ export async function runSetup(
     scope = selectedScope;
   }
 
-  // Opencode ships 1.x and 2.x as separate binaries with incompatible config
-  // layouts — neither accepts the other's. When both are installed the user
-  // must say which one they actually run, and the choice is asked again on
-  // every setup: nothing is persisted, so switching binaries needs no reset.
-  const layout = await promptOpencodeLayout(client, layoutOverride);
-
   // Auth is resolved only once the client is known: a client with native
   // OAuth may need no CLI login at all, and asking first would leave unused
   // API keys behind.
@@ -733,14 +683,16 @@ export async function runSetup(
     apiKey = await ensureApiKey(providedKey, authMode);
   }
 
-  const config = await loadConfig();
+  // `loadConfig` reads the config file and can resolve an endpoint over the
+  // network; both are slow enough to look frozen without feedback.
+  const config = await withSpinner("Resolving NeedMCP endpoint...", () => loadConfig());
   const mcpUrl = resolveMcpUrl(config);
 
   // Show the resolved endpoint up front: a silent fall back to production when
   // a local override was expected is hard to notice in the written config.
   const localOverride = isUrlOverridden();
-  console.log(
-    `  ${pc.dim("Endpoint:")} ${pc.cyan(mcpUrl)}` +
+  log.info(
+    `${pc.dim("Endpoint:")} ${pc.cyan(mcpUrl)}` +
       (localOverride ? pc.yellow("  (overridden by env)") : "")
   );
 
@@ -754,15 +706,14 @@ export async function runSetup(
     try {
       const result =
         authChoice === "native-oauth" && canDriveNativeOAuth(client)
-          ? await runNativeOAuth(client, mcpUrl, scope, layout)
+          ? await runNativeOAuth(client, mcpUrl, scope)
           : await setupClient(
               client,
               apiKey,
               mcpUrl,
               scope,
               authChoice === "native-oauth",
-              authChoice,
-              layout
+              authChoice
             );
       results.push(result);
 
@@ -814,15 +765,8 @@ async function removeJsonClient(
       const name = client.serverName ?? "needmcp";
       const { config, removed } = removeServerEntry(existing, key, name);
 
-      // Also clear an entry left under the old `mcp.servers` path.
-      const { config: cleaned, removed: strayRemoved } = cleanupStrayEntry(
-        config,
-        key,
-        name
-      );
-
-      if (removed || strayRemoved) {
-        await writeJsonConfig(resolved, cleaned);
+      if (removed) {
+        await writeJsonConfig(resolved, config);
         return { clientId: client.id, clientName: client.name, success: true, message: "Removed" };
       }
     } catch {}
@@ -896,7 +840,11 @@ async function removeClient(
 export async function runUninstall(): Promise<void> {
   intro(pc.bgRed(pc.black(" needmcp remove ")));
 
-  const detected = await detectAllClients();
+  const detected = await withSpinner(
+    "Detecting installed AI clients...",
+    () => detectAllClients(),
+    describeDetectedClients
+  );
 
   const eligible = detected.filter((dc) => dc.configured || dc.detected);
 

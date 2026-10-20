@@ -58,37 +58,21 @@ export interface ClientConfig {
   /**
    * Path to the section that holds server entries. A plain string targets a
    * top-level key (`"mcpServers"`); an array walks nested objects
-   * (`["mcp"]` for Opencode 1.x, `["mcp", "servers"]` for 2.x).
-   *
-   * A function is allowed for clients whose layout depends on which client
-   * version is in use. It receives the layout the user chose for this run (or
-   * `undefined` when the client has no such choice), so the answer can differ
-   * between runs without any global state.
+   * (`["mcp"]` for Opencode).
    */
-  configKey?: string | string[] | ((layout?: string) => string | string[]);
+  configKey?: string | string[];
   serverName?: string;
   projectPaths?: string[];
   globalPaths?: string[];
   /**
    * Files from older client versions that are still *read* for migration but
    * never written, resolved in the **global** root.
-   *
-   * Opencode uses this for `opencode.json`: both 1.x and 2.x disagree on
-   * precedence with `opencode.jsonc`, so writing it can produce a config the
-   * running binary ignores.
    */
   legacyPaths?: string[];
   /** Same as `legacyPaths`, resolved in the project root (never across scopes). */
   legacyProjectPaths?: string[];
-  /**
-   * Build the server entry. `layout` is the client-specific layout chosen for
-   * this run, for clients whose schema differs by version (Opencode).
-   */
-  buildEntry?: (
-    apiKey: string | undefined,
-    mcpUrl: string,
-    layout?: string
-  ) => Record<string, unknown>;
+  /** Build the server entry for API-key mode. */
+  buildEntry?: (apiKey: string | undefined, mcpUrl: string) => Record<string, unknown>;
   buildCommand?: (apiKey: string | undefined, mcpUrl: string) => string;
   detectPaths?: string[];
   instructions?: string;
@@ -116,12 +100,6 @@ export interface DetectedClient extends ClientConfig {
   detected: boolean;
   configured: boolean;
   configPath?: string;
-  /**
-   * Set when the client has a server entry, but under the config layout the
-   * currently-installed version does not read (Opencode only). The entry
-   * exists yet is invisible, so setup must ask which version is in use.
-   */
-  staleLayout?: string;
 }
 
 /** True when the client can hand the OAuth handshake to its own CLI. */
@@ -135,35 +113,23 @@ export function hasOAuth(client: ClientConfig): boolean {
 }
 
 /**
- * Resolve a client's config key, calling it when it is dynamic.
+ * Resolve a client's config key.
  *
- * Opencode's key depends on which version the user is running (1.x nests
- * servers under `mcp`, 2.x under `mcp.servers`), so `configKey` may be a
- * function. Callers must go through this helper rather than reading
- * `.configKey` directly. Pass the layout chosen for this run when there is one.
+ * Callers must go through this helper rather than reading `.configKey`
+ * directly, so the default applies consistently.
  */
-export function resolveClientConfigKey(
-  client: ClientConfig,
-  layout?: string
-): string | string[] {
-  const key = client.configKey ?? "mcpServers";
-  return typeof key === "function" ? key(layout) : key;
+export function resolveClientConfigKey(client: ClientConfig): string | string[] {
+  return client.configKey ?? "mcpServers";
 }
 
-/**
- * Build a client's server entry for the layout chosen this run.
- *
- * Thin wrapper so callers never have to remember the `layout` argument; it is
- * simply forwarded, and ignored by every client that has no such choice.
- */
+/** Build a client's server entry for API-key mode. */
 export function buildClientEntry(
   client: ClientConfig,
   apiKey: string | undefined,
-  mcpUrl: string,
-  layout?: string
+  mcpUrl: string
 ): Record<string, unknown> {
   if (!client.buildEntry) {
     throw new Error(`Client ${client.id} has no buildEntry`);
   }
-  return client.buildEntry(apiKey, mcpUrl, layout);
+  return client.buildEntry(apiKey, mcpUrl);
 }

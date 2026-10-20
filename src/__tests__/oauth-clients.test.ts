@@ -3,7 +3,7 @@ import { JSON_CLIENTS } from "../clients/json.js";
 import { CLI_CLIENTS } from "../clients/cli.js";
 import { TOML_CLIENTS } from "../clients/toml.js";
 import { allClients } from "../clients/index.js";
-import { hasOpencodeV2 } from "../clients/opencode-cli.js";
+import { buildOpencodeAuthArgs } from "../clients/opencode-cli.js";
 import {
   buildAmpAddArgs,
   buildClaudeCodeAddArgs,
@@ -80,16 +80,12 @@ describe("ClientConfig OAuth capability", () => {
     }
   });
 
-  it("Opencode falls back to writing the file when only 1.x is installed", () => {
-    // `addArgs` returns null (not an argv) when `mcp add` cannot be scripted.
+  it("never scripts `mcp add` for Opencode — the file is written by hand", () => {
+    // The entry is written straight into opencode.jsonc, so there is no `add`
+    // step; `addArgs` returns null regardless of which binary is installed.
     const opencode = allClients().find((c) => c.id === "opencode")!;
-    const args = opencode.oauth!.addArgs!(url, "global");
-    if (!hasOpencodeV2()) {
-      expect(args).toBeNull();
-    } else {
-      expect(args).toContain("mcp");
-      expect(args).toContain("add");
-    }
+    expect(opencode.oauth!.addArgs!(url, "global")).toBeNull();
+    expect(opencode.oauth!.addArgs!(url, "project")).toBeNull();
   });
 
   it("keeps Opencode's supportsNativeOAuth flag in sync with the generic mode", () => {

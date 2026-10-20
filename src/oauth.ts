@@ -3,6 +3,8 @@ import crypto from "node:crypto";
 import { execFile } from "node:child_process";
 import pc from "picocolors";
 
+declare const __VERSION__: string;
+
 /**
  * Escape a string for safe interpolation into HTML text content.
  *
@@ -109,7 +111,7 @@ export async function exchangeCodeForApiKey(
     headers: {
       "Content-Type": "application/json",
       Accept: "application/json",
-      "User-Agent": "needmcp-cli/1.6.0",
+      "User-Agent": `needmcp-cli/${typeof __VERSION__ === "string" ? __VERSION__ : "0.0.0"}`,
     },
     body: JSON.stringify({
       code,

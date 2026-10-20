@@ -4,21 +4,14 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { JSON_CLIENTS } from "../clients/json.js";
 import { resolveClientConfigKey } from "../clients/types.js";
-import { detectOpencodeLayout } from "../clients/opencode-layout.js";
-import {
-  buildOpencodeAddArgs,
-  buildOpencodeAuthArgs,
-  OPENCODE_SERVER_NAME,
-} from "../clients/opencode-cli.js";
+import { buildOpencodeAuthArgs, OPENCODE_SERVER_NAME } from "../clients/opencode-cli.js";
 import {
   mergeServerEntry,
   removeServerEntry,
   getSection,
-  cleanupStrayEntry,
   writeJsonConfig,
   readJsonConfig,
   hasJsonComments,
-  loadMigrationSource,
 } from "../mcp-writer.js";
 
 const url = "https://needmcp.com/mcp";
@@ -34,156 +27,158 @@ describe("Opencode client registration", () => {
     expect(matches[0].name).toBe("Opencode");
   });
 
-  it("never registers an opencode-v2 client (mcp.servers is invalid in 1.x)", () => {
-    expect(JSON_CLIENTS.find((c) => c.id === "opencode-v2")).toBeUndefined();
-  });
-
   it("is marked native OAuth capable and scope-prompting", () => {
     expect(opencode.supportsNativeOAuth).toBe(true);
     expect(opencode.requiresScopeChoice).toBe(true);
     expect(opencode.oauth?.mode).toBe("native");
   });
+
+  it("never runs `mcp add` — the file is written by hand", () => {
+    expect(opencode.oauth!.addArgs!(url, "global")).toBeNull();
+  });
+
+  it("authenticates with `opencode mcp auth needmcp`", () => {
+    expect(opencode.oauth!.loginArgs!()).toEqual(["mcp", "auth", "needmcp"]);
+  });
+
+  it("is detected by its binary, so it appears before a config file exists", () => {
+    // Without detectPaths a fresh install reads as "not found" and sinks to the
+    // bottom of the picker, which is indistinguishable from "not supported".
+    expect(opencode.detectPaths).toEqual(["opencode", "opencode2"]);
+  });
+
+  it("has exactly one entry regardless of which Opencode name is installed", () => {
+    // Both names write the same file, so there is no per-version variant.
+    const ids = JSON_CLIENTS.map((c) => c.id).filter((id) => id.includes("opencode"));
+    expect(ids).toEqual(["opencode"]);
+  });
+});
+
+describe("checkJsonClient honours detectPaths", () => {
+  it("reports a JSON client as detected when its binary is on PATH but no config exists", async () => {
+    const { detectClient } = await import("../clients/index.js");
+    const paths = await mkdtemp(join(tmpdir(), "needmcp-detect-"));
+    try {
+      // A client whose config cannot exist here, but whose binary is certainly
+      // on PATH (this machine runs the tests with node).
+      const probe = {
+        ...opencode,
+        globalPaths: [join(paths, "nope.jsonc")],
+        projectPaths: [],
+        detectPaths: [process.platform === "win32" ? "where" : "which"],
+      };
+      const detected = await detectClient(probe, "global");
+      expect(detected.configured).toBe(false);
+      expect(detected.detected).toBe(true);
+    } finally {
+      await rm(paths, { recursive: true, force: true });
+    }
+  });
 });
 
 describe("Opencode config paths", () => {
-  // Verified against both real binaries: 2.x ignores `opencode.jsonc` entirely
-  // ("No MCP servers configured"), while `opencode.json` is read by 1.2.27 and
-  // 2.0.32 alike. Only one filename therefore serves both versions.
-  it("targets opencode.json only", () => {
+  it("targets opencode.jsonc only", () => {
     expect(opencode.globalPaths).toHaveLength(1);
-    expect(opencode.globalPaths![0].endsWith(join("opencode", "opencode.json"))).toBe(true);
-    expect(opencode.projectPaths).toEqual(["opencode.json"]);
+    expect(opencode.globalPaths![0].endsWith(join("opencode", "opencode.jsonc"))).toBe(true);
+    expect(opencode.projectPaths).toEqual(["opencode.jsonc"]);
   });
 
-  it("never writes opencode.jsonc (2.x does not read it)", () => {
-    for (const p of [...(opencode.globalPaths ?? []), ...(opencode.projectPaths ?? [])]) {
-      expect(p.endsWith(".jsonc")).toBe(false);
+  it("never treats opencode.json as a read or write target", () => {
+    for (const p of [
+      ...(opencode.globalPaths ?? []),
+      ...(opencode.projectPaths ?? []),
+      ...(opencode.legacyPaths ?? []),
+      ...(opencode.legacyProjectPaths ?? []),
+    ]) {
+      expect(p.endsWith("opencode.json")).toBe(false);
     }
-  });
-
-  it("reads opencode.jsonc once as a legacy source", () => {
-    expect(opencode.legacyPaths).toBeDefined();
-    expect(opencode.legacyPaths!.some((p) => p.endsWith("opencode.jsonc"))).toBe(true);
-    expect(opencode.legacyProjectPaths).toEqual(["opencode.jsonc"]);
   });
 });
 
-describe("Opencode entry shape", () => {
-  // The layout is decided by the installed binary, so these assert against the
-  // version actually present rather than pinning one shape.
-  const layout = detectOpencodeLayout();
-  const isV2 = layout === "v2";
-
-  it("nests under mcp for 1.x and mcp.servers for 2.x", () => {
-    const keyPath = resolveClientConfigKey(opencode);
-    expect(keyPath).toEqual(isV2 ? ["mcp", "servers"] : ["mcp"]);
+describe("Opencode config shape", () => {
+  it("nests the server under mcp, never mcp.servers", () => {
+    const key = resolveClientConfigKey(opencode);
+    expect(Array.isArray(key) ? key : [key]).toEqual(["mcp"]);
   });
 
-  it("matches the shape the installed version expects", () => {
-    const entry = opencode.buildEntry!(key, url);
-    expect(entry).toEqual(
-      isV2
-        ? { type: "remote", url, headers: { "X-API-Key": key }, disabled: false }
-        : { type: "remote", url, enabled: true, oauth: false, headers: { "X-API-Key": key } }
-    );
+  it("writes the API-key entry exactly as specified", () => {
+    expect(opencode.buildEntry!(key, url)).toEqual({
+      type: "remote",
+      url,
+      enabled: true,
+      headers: { "X-API-Key": key },
+    });
   });
 
-  it("keeps the server enabled in API-key mode", () => {
-    // Verified: with OAuth left active the client ignores `X-API-Key` and
-    // parks the server at "needs authentication". 1.x spells this `oauth:false`,
-    // 2.x `disabled:false`; either way the entry must be live and keyed.
-    const entry = opencode.buildEntry!(key, url);
-    expect(entry.headers).toEqual({ "X-API-Key": key });
-    if (isV2) {
-      expect(entry.disabled).toBe(false);
-      expect(entry).not.toHaveProperty("enabled");
-    } else {
-      expect(entry.oauth).toBe(false);
-      expect(entry.enabled).toBe(true);
-    }
+  it("writes the OAuth entry exactly as specified", () => {
+    expect(opencode.oauth!.buildEntry!(url)).toEqual({
+      type: "remote",
+      url,
+      enabled: true,
+    });
   });
 
   it("omits headers when no key is supplied", () => {
     const entry = opencode.buildEntry!(undefined, url);
-    expect(entry.url).toBe(url);
+    expect(entry).toEqual({ type: "remote", url, enabled: true });
     expect(entry).not.toHaveProperty("headers");
-    expect(entry).not.toHaveProperty("oauth");
   });
 
-  it("writes a header-free entry in OAuth mode", () => {
-    const entry = opencode.oauth!.buildEntry!(url);
-    expect(entry.type).toBe("remote");
-    expect(entry.url).toBe(url);
-    expect(entry).not.toHaveProperty("headers");
-    // OAuth mode must NOT disable sign-in.
-    expect(entry).not.toHaveProperty("oauth");
-  });
-
-  it("never mixes the two layouts", () => {
-    // 1.x fails the WHOLE config on `mcp.servers`, so a key must not contain
-    // both shapes at once.
-    const keyPath = resolveClientConfigKey(opencode) as string[];
-    expect(keyPath.filter((k) => k === "servers").length).toBeLessThanOrEqual(1);
+  it("never writes oauth or disabled — neither is in the agreed format", () => {
+    for (const entry of [opencode.buildEntry!(key, url), opencode.oauth!.buildEntry!(url)]) {
+      expect(entry).not.toHaveProperty("oauth");
+      expect(entry).not.toHaveProperty("disabled");
+    }
   });
 });
 
 describe("Opencode config merging", () => {
-  // 1.x keeps servers directly under `mcp`; 2.x nests them one level down, so
-  // the fixture has to match the layout the installed binary reads.
-  const serversAt = detectOpencodeLayout() === "v2" ? ["mcp", "servers"] : ["mcp"];
-  const siblings = {
-    context7: { type: "remote", url: "https://mcp.context7.com/mcp" },
-    github: { type: "remote", url: "https://api.githubcopilot.com/mcp/" },
-    mxterm: { type: "local", command: ["mxterm"] },
-  };
-
-  function configWithSiblings() {
-    // Place siblings exactly where the client looks for servers.
-    const root: Record<string, unknown> = { $schema: "https://opencode.ai/config.json" };
-    let node = root;
-    for (const seg of serversAt) {
-      const next: Record<string, unknown> = {};
-      node[seg] = next;
-      node = next;
-    }
-    Object.assign(node, siblings);
-    return root as { $schema: string; mcp: Record<string, unknown> };
+  // A realistic global config: unrelated top-level keys plus sibling servers.
+  function realWorldConfig() {
+    return {
+      $schema: "https://opencode.ai/config.json",
+      model: { providerID: "9router", model: "Muse" },
+      agents: { explorer: { mode: "subagent" } },
+      mcp: {
+        context7: { type: "remote", url: "https://mcp.context7.com/mcp" },
+        github: { type: "remote", url: "https://api.githubcopilot.com/mcp/" },
+        mxterm: { type: "local", command: ["mxterm"] },
+      },
+    };
   }
 
-  it("merges needmcp without clobbering siblings", () => {
-    const existing = configWithSiblings();
+  it("adds needmcp without clobbering anything else", () => {
+    const existing = realWorldConfig();
 
-    const { config } = mergeServerEntry(
+    const { config, alreadyExists } = mergeServerEntry(
       existing,
       resolveClientConfigKey(opencode),
       OPENCODE_SERVER_NAME,
       opencode.buildEntry!(key, url)
     );
 
+    expect(alreadyExists).toBe(false);
+    // Unrelated config survives untouched.
     expect(config.$schema).toBe(existing.$schema);
-    const servers = getSection(config, serversAt)!;
-    expect(Object.keys(servers)).toEqual(["context7", "github", "mxterm", "needmcp"]);
-    expect(servers.context7).toEqual(siblings.context7);
-    expect(servers.github).toEqual(siblings.github);
-    expect(servers.mxterm).toEqual(siblings.mxterm);
+    expect(config.model).toEqual(existing.model);
+    expect(config.agents).toEqual(existing.agents);
+    // Every sibling server survives, in order, with needmcp appended.
+    const mcp = getSection(config, ["mcp"])!;
+    expect(Object.keys(mcp)).toEqual(["context7", "github", "mxterm", "needmcp"]);
+    expect(mcp.context7).toEqual(existing.mcp.context7);
+    expect(mcp.needmcp).toEqual(opencode.buildEntry!(key, url));
   });
 
-  it("preserves top-level keys unrelated to mcp", () => {
-    const existing = { $schema: "x", model: "anthropic/claude", mcp: {} };
-    const { config } = mergeServerEntry(
-      existing,
-      resolveClientConfigKey(opencode),
-      OPENCODE_SERVER_NAME,
-      opencode.buildEntry!(key, url)
-    );
-    expect(config.model).toBe("anthropic/claude");
+  it("preserves an existing mcp object that is not yet present", () => {
+    const { config } = mergeServerEntry({ $schema: "x" }, ["mcp"], "needmcp", {});
+    expect(config).toEqual({ $schema: "x", mcp: { needmcp: {} } });
   });
 
-  it("reports alreadyExists on a second write", () => {
-    const first = mergeServerEntry({}, resolveClientConfigKey(opencode), OPENCODE_SERVER_NAME, opencode.buildEntry!(key, url));
+  it("reports alreadyExists when the entry is rewritten", () => {
+    const first = mergeServerEntry({}, ["mcp"], OPENCODE_SERVER_NAME, opencode.buildEntry!(key, url));
     const second = mergeServerEntry(
       first.config,
-      resolveClientConfigKey(opencode),
+      ["mcp"],
       OPENCODE_SERVER_NAME,
       opencode.buildEntry!(key, url)
     );
@@ -205,73 +200,7 @@ describe("Opencode config merging", () => {
   });
 });
 
-describe("Opencode stray mcp.servers cleanup", () => {
-  it("removes a stale mcp.servers.needmcp entry", () => {
-    const existing = {
-      $schema: "x",
-      mcp: {
-        context7: { type: "remote" },
-        servers: { needmcp: { type: "remote" } },
-      },
-    };
-
-    const { config, removed } = cleanupStrayEntry(existing, ["mcp"], "needmcp");
-    expect(removed).toBe(true);
-    const mcp = getSection(config, ["mcp"])!;
-    expect(mcp.servers).toBeUndefined();
-    expect(mcp.context7).toEqual({ type: "remote" });
-  });
-
-  it("keeps sibling entries under a stray mcp.servers", () => {
-    const existing = { mcp: { servers: { needmcp: {}, other: {} } } };
-    const { config } = cleanupStrayEntry(existing, ["mcp"], "needmcp");
-    expect(getSection(config, ["mcp", "servers"])).toEqual({ other: {} });
-  });
-
-  it("is a no-op when there is no stray entry", () => {
-    const existing = { mcp: { context7: {} } };
-    const { config, removed } = cleanupStrayEntry(existing, ["mcp"], "needmcp");
-    expect(removed).toBe(false);
-    expect(config).toBe(existing);
-  });
-
-  it("is a no-op for clients whose real key is mcp.servers", () => {
-    const existing = { mcp: { servers: { needmcp: {} } } };
-    const { removed } = cleanupStrayEntry(existing, ["mcp", "servers"], "needmcp");
-    expect(removed).toBe(false);
-  });
-});
-
-describe("Opencode CLI command builders", () => {
-  it("builds the auth argv for the registered server name", () => {
-    expect(buildOpencodeAuthArgs()).toEqual(["mcp", "auth", "needmcp"]);
-  });
-
-  it("builds `mcp add` with key=value headers and --global only for global scope", () => {
-    const args = buildOpencodeAddArgs({ mcpUrl: url, scope: "global", apiKey: key });
-    expect(args).toEqual([
-      "mcp", "add", "needmcp",
-      "--url", url,
-      "--header", `X-API-Key=${key}`,
-      "--global",
-    ]);
-    // `--header` must use `=`: Opencode rejects `X-API-Key: value`.
-    const header = args[args.indexOf("--header") + 1];
-    expect(header).toContain("=");
-    expect(header).not.toContain(": ");
-  });
-
-  it("omits --global and the header where appropriate", () => {
-    const project = buildOpencodeAddArgs({ mcpUrl: url, scope: "project", apiKey: key });
-    expect(project).not.toContain("--global");
-
-    const oauth = buildOpencodeAddArgs({ mcpUrl: url, scope: "global" });
-    expect(oauth).not.toContain("--header");
-    expect(oauth).toEqual(["mcp", "add", "needmcp", "--url", url, "--global"]);
-  });
-});
-
-describe("Opencode migration from opencode.jsonc to opencode.json", () => {
+describe("Opencode file round-trip", () => {
   let dir: string;
 
   beforeEach(async () => {
@@ -282,62 +211,69 @@ describe("Opencode migration from opencode.jsonc to opencode.json", () => {
     await rm(dir, { recursive: true, force: true });
   });
 
-  it("seeds opencode.json from an existing opencode.jsonc", async () => {
-    const legacy = join(dir, "opencode.jsonc");
-    const target = join(dir, "opencode.json");
-    // The legacy file carries its sibling where the installed client looks for
-    // servers, so the merge target and the source agree.
-    const serversAt = resolveClientConfigKey(opencode);
-    const legacyBody =
-      detectOpencodeLayout() === "v2"
-        ? { $schema: "x", mcp: { servers: { context7: { type: "remote" } } } }
-        : { $schema: "x", mcp: { context7: { type: "remote" } } };
-    await writeFile(legacy, JSON.stringify(legacyBody, null, 2));
+  it("edits opencode.jsonc in place and keeps every existing key", async () => {
+    const target = join(dir, "opencode.jsonc");
+    const original = {
+      $schema: "https://opencode.ai/config.json",
+      model: { providerID: "9router", model: "Muse" },
+      mcp: { context7: { type: "remote", url: "https://mcp.context7.com/mcp" } },
+    };
+    await writeFile(target, JSON.stringify(original, null, 2));
 
-    const source = await loadMigrationSource(target, [legacy]);
-    expect(source).not.toBeNull();
-    expect(source!.from).toBe(legacy);
-
+    const existing = await readJsonConfig(target);
     const { config } = mergeServerEntry(
-      source!.config,
-      serversAt,
+      existing,
+      resolveClientConfigKey(opencode),
       OPENCODE_SERVER_NAME,
       opencode.buildEntry!(key, url)
     );
     await writeJsonConfig(target, config);
 
     const written = await readJsonConfig(target);
-    const servers = getSection(written, serversAt)!;
-    expect(Object.keys(servers)).toEqual(["context7", "needmcp"]);
-    expect(servers.needmcp).toEqual(opencode.buildEntry!(key, url));
-
-    // The legacy file must be left untouched.
-    const legacyAfter = await readJsonConfig(legacy);
-    expect(legacyAfter).toEqual(legacyBody);
+    expect(written.$schema).toBe(original.$schema);
+    expect(written.model).toEqual(original.model);
+    expect(getSection(written, ["mcp"])).toEqual({
+      context7: original.mcp.context7,
+      needmcp: opencode.buildEntry!(key, url),
+    });
   });
 
-  it("does not migrate when the target already exists", async () => {
-    const legacy = join(dir, "opencode.jsonc");
-    const target = join(dir, "opencode.json");
-    await writeFile(legacy, JSON.stringify({ mcp: { old: {} } }));
-    await writeFile(target, JSON.stringify({ mcp: { existing: {} } }));
+  it("creates opencode.jsonc when it does not exist yet", async () => {
+    const target = join(dir, "opencode.jsonc");
+    const { config } = mergeServerEntry(
+      {},
+      resolveClientConfigKey(opencode),
+      OPENCODE_SERVER_NAME,
+      opencode.oauth!.buildEntry!(url)
+    );
+    await writeJsonConfig(target, config);
 
-    const source = await loadMigrationSource(target, [legacy]);
-    expect(source).toBeNull();
+    const raw = await readFile(target, "utf-8");
+    expect(JSON.parse(raw)).toEqual({ mcp: { needmcp: opencode.oauth!.buildEntry!(url) } });
   });
 
-  it("returns null when no legacy file exists", async () => {
-    const source = await loadMigrationSource(join(dir, "opencode.json"), [
-      join(dir, "opencode.jsonc"),
-    ]);
-    expect(source).toBeNull();
+  it("reads a commented .jsonc file", async () => {
+    const target = join(dir, "opencode.jsonc");
+    await writeFile(
+      target,
+      '{\n  // my config\n  "mcp": {\n    "context7": { "type": "remote" } // keep me\n  }\n}\n'
+    );
+
+    const parsed = await readJsonConfig(target);
+    expect(parsed).toEqual({ mcp: { context7: { type: "remote" } } });
   });
 
-  it("ignores an empty legacy file", async () => {
-    const legacy = join(dir, "opencode.jsonc");
-    await writeFile(legacy, "{}");
-    const source = await loadMigrationSource(join(dir, "opencode.json"), [legacy]);
-    expect(source).toBeNull();
+  it("never touches a sibling opencode.json", async () => {
+    const jsonc = join(dir, "opencode.jsonc");
+    const json = join(dir, "opencode.json");
+    const legacyBody = { mcp: { old: {} } };
+    await writeFile(json, JSON.stringify(legacyBody, null, 2));
+
+    const { config } = mergeServerEntry({}, ["mcp"], OPENCODE_SERVER_NAME, opencode.buildEntry!(key, url));
+    await writeJsonConfig(jsonc, config);
+
+    const after = await readJsonConfig(json);
+    expect(after).toEqual(legacyBody);
   });
 });
 
@@ -380,5 +316,11 @@ describe("hasJsonComments", () => {
     const f = join(nested, "opencode.jsonc");
     await writeFile(f, '{"mcp":{}}');
     expect(await hasJsonComments(f)).toBe(false);
+  });
+});
+
+describe("Opencode auth command", () => {
+  it("builds the auth argv for the registered server name", () => {
+    expect(buildOpencodeAuthArgs()).toEqual(["mcp", "auth", "needmcp"]);
   });
 });
