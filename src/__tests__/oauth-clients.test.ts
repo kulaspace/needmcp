@@ -60,6 +60,7 @@ describe("ClientConfig OAuth capability", () => {
       "kiro",
       "crush",
       "opencode",
+      "opencode2",
     ];
     for (const id of expected) {
       const client = allClients().find((c) => c.id === id);

@@ -99,10 +99,11 @@ verify a client's argv, do not guess — leave it on the API-key path.
 Gemini rejects callbacks without `iss` (RFC 9207). The entry must keep
 `"authorizationResponseIssParameterSupported": false`.
 
-## Opencode: one client, one config shape
+## Opencode: two clients, one config shape
 
-There is exactly **one** Opencode client and **one** config shape. Do not
-reintroduce a per-version layout, an `opencode-v2` variant, or a version prompt.
+There are **two** Opencode clients (`opencode` and `opencode2`) but **one** config
+shape shared by both. Do not reintroduce a per-version layout or a `mcp.servers`
+wrapper; both binaries normalise the single `mcp.needmcp` shape.
 
 Everything is written to `opencode.jsonc`, at `mcp.needmcp`:
 

@@ -308,7 +308,7 @@ async function setupJsonClient(
   await writeJsonConfig(resolved, config);
 
   const messages: string[] = [alreadyExists ? "Updated" : "Created"];
-  if (client.id === "opencode") {
+  if (client.id === "opencode" || client.id === "opencode2") {
     messages.push(`wrote ${toKeyPath(key).join(".")}.${name} in ${resolved}`);
   }
 

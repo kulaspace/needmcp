@@ -41,6 +41,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Opencode is offered as two clients again:** `opencode` (v1) and `opencode2`,
+  each using its own binary for native OAuth while sharing the single
+  `mcp.needmcp` shape in `opencode.jsonc`.
+
+
 ### Fixed
 
 - **Opencode config is now a single hand-written file: `opencode.jsonc`.** The CLI

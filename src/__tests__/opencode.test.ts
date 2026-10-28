@@ -20,11 +20,10 @@ const key = "sk-need-Sgy1p3r25UD4qQErwF2g";
 const opencode = JSON_CLIENTS.find((c) => c.id === "opencode")!;
 
 describe("Opencode client registration", () => {
-  it("exposes exactly one Opencode client", () => {
+  it("exposes exactly two Opencode clients", () => {
     const matches = JSON_CLIENTS.filter((c) => c.id.startsWith("opencode"));
-    expect(matches).toHaveLength(1);
-    expect(matches[0].id).toBe("opencode");
-    expect(matches[0].name).toBe("Opencode");
+    expect(matches).toHaveLength(2);
+    expect(matches.map((c) => c.id)).toEqual(["opencode", "opencode2"]);
   });
 
   it("is marked native OAuth capable and scope-prompting", () => {
@@ -44,13 +43,13 @@ describe("Opencode client registration", () => {
   it("is detected by its binary, so it appears before a config file exists", () => {
     // Without detectPaths a fresh install reads as "not found" and sinks to the
     // bottom of the picker, which is indistinguishable from "not supported".
-    expect(opencode.detectPaths).toEqual(["opencode", "opencode2"]);
+    expect(opencode.detectPaths).toEqual(["opencode"]);
   });
 
   it("has exactly one entry regardless of which Opencode name is installed", () => {
     // Both names write the same file, so there is no per-version variant.
     const ids = JSON_CLIENTS.map((c) => c.id).filter((id) => id.includes("opencode"));
-    expect(ids).toEqual(["opencode"]);
+    expect(ids).toEqual(["opencode", "opencode2"]);
   });
 });
 
