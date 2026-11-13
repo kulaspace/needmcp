@@ -34,6 +34,9 @@ Examples:
   ${pc.dim("# Setup using browser OAuth (default choice)")}
   ${pc.cyan("needmcp setup --auth oauth")}
 
+  ${pc.dim("# Non-interactive, for AI agents")}
+  ${pc.cyan("needmcp setup --client opencode --scope global --auth oauth --yes --json")}
+
   ${pc.dim("# Remove NeedMCP from clients")}
   ${pc.cyan("needmcp remove")}
 
@@ -47,6 +50,10 @@ program
   .description("Setup NeedMCP MCP server for your AI clients")
   .option("-k, --key <key>", "NeedMCP API key")
   .option("-a, --auth <method>", "Auth method: oauth | key")
+  .option("-c, --client <id>", "Client id to configure, skips the picker")
+  .option("-s, --scope <scope>", "Config scope: global | project")
+  .option("-y, --yes", "Accept recommended defaults instead of prompting")
+  .option("--json", "Print a JSON result line as the last stdout line")
   .action(async (options) => {
     try {
       let authMode: AuthMode | undefined;
@@ -59,13 +66,32 @@ program
         authMode = value;
       }
 
-      await runSetup(options.key, authMode);
-      process.exit(0);
+      let scope: "global" | "project" | undefined;
+      if (options.scope !== undefined) {
+        const value = String(options.scope).toLowerCase();
+        if (value !== "global" && value !== "project") {
+          console.error(pc.red(`Invalid --scope value "${options.scope}". Use "global" or "project".`));
+          process.exit(1);
+        }
+        scope = value;
+      }
+
+      await runSetup(options.key, authMode, {
+        client: options.client,
+        scope,
+        yes: options.yes,
+        json: options.json,
+      });
+
+      // In --json mode the result must reach the caller intact: process.exit()
+      // can truncate a piped stdout before it drains.
+      if (!options.json) process.exit(0);
     } catch (err) {
       if (err instanceof Error && err.name === "ExitPromptError") {
         process.exit(0);
       }
       if (err instanceof CliError) {
+        console.error(pc.red(err.message));
         process.exit(1);
       }
       console.error(pc.red("Unexpected error:"), err);
@@ -85,6 +111,7 @@ program
         process.exit(0);
       }
       if (err instanceof CliError) {
+        console.error(pc.red(err.message));
         process.exit(1);
       }
       console.error(pc.red("Unexpected error:"), err);
@@ -109,6 +136,7 @@ style
         process.exit(0);
       }
       if (err instanceof CliError) {
+        console.error(pc.red(err.message));
         process.exit(1);
       }
       console.error(pc.red("Unexpected error:"), err);
@@ -130,6 +158,7 @@ program
         process.exit(0);
       }
       if (err instanceof CliError) {
+        console.error(pc.red(err.message));
         process.exit(1);
       }
       console.error(pc.red("Unexpected error:"), err);

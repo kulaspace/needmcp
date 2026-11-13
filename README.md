@@ -153,12 +153,23 @@ needmcp setup --auth oauth
 # Provide an API key directly
 needmcp setup --key sk-need-xxxxxxxxxxxx
 needmcp setup --auth key
+
+# Non-interactive, for AI agents
+needmcp setup --client opencode --scope global --auth oauth --yes --json
 ```
 
 | Flag | Description |
 | :--- | :--- |
 | `-k, --key <key>` | Use the provided NeedMCP API key |
 | `-a, --auth <method>` | Auth method: `oauth` or `key` |
+| `-c, --client <id>` | Client to configure, skips the picker (`opencode`, `cursor`, `claude-code`, …) |
+| `-s, --scope <scope>` | Config scope: `global` or `project` |
+| `-y, --yes` | Accept the recommended answers instead of prompting |
+| `--json` | Print a JSON result as the last stdout line (`client`, `scope`, `auth`, `status`, `message`) |
+
+Setup never prompts when `--client` is given and there is no terminal to prompt
+in: it fails with the flags it needs instead. `--json` is meant for scripts and
+agents, which should read the last line rather than the coloured output.
 
 ### `needmcp remove`
 

@@ -18,6 +18,56 @@ export type AuthMode = "oauth" | "key";
 /** How the NeedMCP entry gets authentication when the client supports OAuth. */
 type AuthChoice = "native-oauth" | "api-key";
 
+/** Non-interactive inputs, so an AI agent can drive setup without a TTY. */
+export interface SetupOptions {
+  /** Client id (see `resolveSetupClient`); skips the client picker. */
+  client?: string;
+  scope?: "global" | "project";
+  /** Accept recommended defaults instead of prompting. */
+  yes?: boolean;
+  /** Print a single JSON line as the last stdout line, for agents. */
+  json?: boolean;
+}
+
+/**
+ * Resolve `--client` to a client, or fail with the list of valid ids.
+ *
+ * An unknown id used to fall through to the picker, which on a non-TTY is a
+ * hang and for an agent is a silent wrong-client setup.
+ */
+export function resolveSetupClient(clientId: string): ClientConfig {
+  const client = allClients().find((c) => c.id === clientId);
+  if (!client) {
+    throw new CliError(
+      `Unknown client "${clientId}". Available: ${allClients().map((c) => c.id).join(", ")}`
+    );
+  }
+  return client;
+}
+
+/**
+ * Resolve `--scope`, rejecting a scope the client has no path for.
+ * Returns null when the client supports both and none was requested.
+ */
+export function resolveSetupScope(
+  client: ClientConfig,
+  requested?: "global" | "project"
+): "global" | "project" | null {
+  const scopes = getAvailableScopes(client);
+  if (!requested) return scopes.length === 1 ? scopes[0] : null;
+  if (!scopes.includes(requested)) {
+    throw new CliError(
+      `${client.name} does not support ${requested} scope. Use: ${scopes.join(" or ")}.`
+    );
+  }
+  return requested;
+}
+
+/** OAuth when the client can do it, otherwise the API-key path. */
+function defaultAuthChoice(client: ClientConfig): AuthChoice {
+  return client.oauth && client.oauth.mode !== "unsupported" ? "native-oauth" : "api-key";
+}
+
 // Temporary kill-switch for guest mode. Set to `true` to re-enable the
 // "Guest Mode" option in the authentication menu. When `false`, users must
 // authenticate via OAuth or an API key.
@@ -617,48 +667,61 @@ async function setupClient(
 
 export async function runSetup(
   providedKey?: string,
-  authMode?: AuthMode
+  authMode?: AuthMode,
+  opts: SetupOptions = {}
 ): Promise<void> {
-  intro(pc.bgCyan(pc.black(" needmcp setup ")));
+  if (!opts.json) intro(pc.bgCyan(pc.black(" needmcp setup ")));
 
-  const detected = await withSpinner(
-    "Detecting installed AI clients...",
-    () => detectAllClients(),
-    describeDetectedClients
-  );
+  let client: ClientConfig;
 
-  const sortWeight = (dc: DetectedClient): number => dc.configured ? 0 : dc.detected ? 1 : 2;
-  detected.sort((a, b) => sortWeight(a) - sortWeight(b));
-
-  const options = detected.map((dc) => ({
-    value: dc.id,
-    label: `${statusIcon(dc)} ${dc.name}`,
-    hint: dc.description ? `${statusText(dc)} — ${dc.description}` : statusText(dc),
-  }));
-
-  const selected = await select({
-    message: "Select a client to setup:",
-    options,
-  });
-
-  if (isCancel(selected) || !selected) {
-    cancel("No client selected");
-    throw new CliError("No client selected");
-  }
-
-  const clientId = selected;
-
-  const client = allClients().find((c) => c.id === clientId);
-  if (!client) {
-    cancel("Client not found");
-    throw new CliError("Client not found");
-  }
-
-  const scopes = getAvailableScopes(client);
-  let scope: "global" | "project";
-  if (scopes.length === 1) {
-    scope = scopes[0];
+  if (opts.client) {
+    // No detection sweep: the caller already knows which client it wants, and
+    // `where`/`which` lookups are the slowest part of setup.
+    client = resolveSetupClient(opts.client);
+    log.info(`${pc.dim("Client:")} ${pc.cyan(client.name)}`);
   } else {
+    // A prompt on a non-TTY reads as a hang, so fail with the flags instead.
+    if (!hasInteractiveTerminal()) {
+      throw new CliError(
+        "No terminal to prompt in. Pass --client <id> and --scope <global|project>."
+      );
+    }
+
+    const detected = await withSpinner(
+      "Detecting installed AI clients...",
+      () => detectAllClients(),
+      describeDetectedClients
+    );
+
+    const sortWeight = (dc: DetectedClient): number => dc.configured ? 0 : dc.detected ? 1 : 2;
+    detected.sort((a, b) => sortWeight(a) - sortWeight(b));
+
+    const options = detected.map((dc) => ({
+      value: dc.id,
+      label: `${statusIcon(dc)} ${dc.name}`,
+      hint: dc.description ? `${statusText(dc)} — ${dc.description}` : statusText(dc),
+    }));
+
+    const selected = await select({
+      message: "Select a client to setup:",
+      options,
+    });
+
+    if (isCancel(selected) || !selected) {
+      cancel("No client selected");
+      throw new CliError("No client selected");
+    }
+
+    client = resolveSetupClient(selected);
+  }
+
+  let scope = resolveSetupScope(client, opts.scope);
+  if (!scope) {
+    if (!hasInteractiveTerminal()) {
+      throw new CliError(
+        `Pass --scope <${getAvailableScopes(client).join("|")}> for ${client.id}.`
+      );
+    }
     const selectedScope = await select({
       message: "Config scope:",
       options: [
@@ -675,11 +738,24 @@ export async function runSetup(
 
   // Auth is resolved only once the client is known: a client with native
   // OAuth may need no CLI login at all, and asking first would leave unused
-  // API keys behind.
-  const authChoice = await promptAuthChoice(client, authMode);
+  // API keys behind. `--yes` (or a missing terminal) takes the recommended
+  // answer rather than prompting.
+  const authChoice =
+    authMode === undefined && (opts.yes || !hasInteractiveTerminal())
+      ? defaultAuthChoice(client)
+      : await promptAuthChoice(client, authMode);
 
   let apiKey: string | undefined;
   if (authChoice === "api-key") {
+    // The CLI's own OAuth login waits on a browser on loopback, which only
+    // works with a terminal. Clients without OAuth support therefore need a
+    // key handed in, not a prompt.
+    if (!providedKey && !hasInteractiveTerminal()) {
+      throw new CliError(
+        `${client.name} does not support browser OAuth. Pass --key sk-need-... ` +
+          `(create one at ${resolveBaseUrl({})}/api-keys), or run in a terminal.`
+      );
+    }
     apiKey = await ensureApiKey(providedKey, authMode);
   }
 
@@ -688,15 +764,17 @@ export async function runSetup(
   const config = await withSpinner("Resolving NeedMCP endpoint...", () => loadConfig());
   const mcpUrl = resolveMcpUrl(config);
 
-  // Show the resolved endpoint up front: a silent fall back to production when
-  // a local override was expected is hard to notice in the written config.
-  const localOverride = isUrlOverridden();
-  log.info(
-    `${pc.dim("Endpoint:")} ${pc.cyan(mcpUrl)}` +
-      (localOverride ? pc.yellow("  (overridden by env)") : "")
-  );
+  if (!opts.json) {
+    // Show the resolved endpoint up front: a silent fall back to production when
+    // a local override was expected is hard to notice in the written config.
+    const localOverride = isUrlOverridden();
+    log.info(
+      `${pc.dim("Endpoint:")} ${pc.cyan(mcpUrl)}` +
+        (localOverride ? pc.yellow("  (overridden by env)") : "")
+    );
 
-  outro(`Setting up ${pc.cyan(clientId)} (${scope})...\n`);
+    outro(`Setting up ${pc.cyan(client.id)} (${scope})...\n`);
+  }
 
   const results: SetupResult[] = [];
 
@@ -741,6 +819,21 @@ export async function runSetup(
 
   const successCount = results.filter((r) => r.success).length;
   const failCount = results.filter((r) => !r.success).length;
+
+  if (opts.json) {
+    const result = results[0];
+    process.stdout.write(
+      JSON.stringify({
+        client: client.id,
+        scope,
+        auth: authChoice,
+        status: result?.success ? "configured" : "failed",
+        message: result?.message ?? "Unknown error",
+      }) + "\n"
+    );
+    if (!result?.success) process.exitCode = 1;
+    return;
+  }
 
   outro(
     `${pc.green(`✔ ${successCount} client(s) configured`)}${failCount > 0 ? ` ${pc.yellow(`⚠ ${failCount} failed`)}` : ""}`
