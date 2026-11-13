@@ -68,11 +68,6 @@ function defaultAuthChoice(client: ClientConfig): AuthChoice {
   return client.oauth && client.oauth.mode !== "unsupported" ? "native-oauth" : "api-key";
 }
 
-// Temporary kill-switch for guest mode. Set to `true` to re-enable the
-// "Guest Mode" option in the authentication menu. When `false`, users must
-// authenticate via OAuth or an API key.
-const GUEST_MODE_ENABLED = false;
-
 function getAvailableScopes(client: ClientConfig): ("global" | "project")[] {
   const scopes: ("global" | "project")[] = [];
   if (client.globalPaths?.length) scopes.push("global");
@@ -162,22 +157,56 @@ async function authenticateWithOAuth(baseUrl: string): Promise<string> {
     key = await loginWithOAuth(baseUrl);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    console.error(`  ${pc.red("✖")} OAuth failed: ${msg}`);
-    console.error(pc.dim("  You can re-run `needmcp setup` and choose \"API Key\" instead."));
-    throw new CliError("OAuth authentication failed");
+    console.error(`  ${pc.red("✖")} Browser sign-in failed: ${msg}`);
+    console.error(
+      pc.dim(`  Re-run \`needmcp setup\` and paste an existing key, or create one at ${baseUrl}/api-keys.`)
+    );
+    throw new CliError("API key creation failed");
   }
 
   const err = validateApiKey(key);
   if (err) {
     console.error(`  ${pc.red("✖")} Received key is invalid: ${err}`);
-    throw new CliError("Invalid API key received from OAuth");
+    throw new CliError("Invalid API key received from browser sign-in");
   }
 
-  console.log(`  ${pc.green("✔")} Authenticated as ${pc.cyan(maskKey(key))}`);
+  console.log(`  ${pc.green("✔")} Created API key ${pc.cyan(maskKey(key))}`);
   return key;
 }
 
-async function ensureApiKey(providedKey?: string, authMode?: AuthMode): Promise<string | undefined> {
+/**
+ * Ask how to obtain the API key.
+ *
+ * Browser sign-in is not a separate auth mode: it exists only to issue an
+ * `sk-need-*` key. Keeping it under "API key" avoids two menu entries that
+ * both read as "OAuth" while producing different credentials.
+ */
+async function promptApiKeySource(): Promise<"browser" | "paste"> {
+  const source = await select({
+    message: "How do you want to provide your API key?",
+    options: [
+      {
+        value: "browser" as const,
+        label: "Create one via browser",
+        hint: `${pc.green("Recommended")} — sign in once; NeedMCP issues a dedicated sk-need-* key`,
+      },
+      {
+        value: "paste" as const,
+        label: "Paste an existing key",
+        hint: "Use a key from your NeedMCP API keys page",
+      },
+    ],
+  });
+
+  if (isCancel(source)) {
+    cancel("Setup cancelled");
+    throw new CliError("Setup cancelled");
+  }
+
+  return source;
+}
+
+async function ensureApiKey(providedKey?: string, authMode?: AuthMode): Promise<string> {
   const config = await loadConfig();
 
   if (providedKey) {
@@ -192,7 +221,8 @@ async function ensureApiKey(providedKey?: string, authMode?: AuthMode): Promise<
     return providedKey;
   }
 
-  // Explicit auth mode via `--auth <oauth|key>` skips the interactive menu.
+  // Explicit auth mode via `--auth <oauth|key>` skips the source prompt.
+  // `oauth` also covers clients without OAuth 2.1, where it creates a key.
   if (authMode === "oauth") {
     const key = await authenticateWithOAuth(resolveBaseUrl(config));
     await saveConfig({ ...config, apiKey: key });
@@ -221,33 +251,10 @@ async function ensureApiKey(providedKey?: string, authMode?: AuthMode): Promise<
     }
   }
 
-  const authOptions = [
-    { value: "oauth", label: "Login with Browser (OAuth)", hint: `${pc.green("Recommended")} — auto-generates a dedicated key` },
-    { value: "apikey", label: "Enter API Key", hint: "Paste an existing sk-need-xxx key" },
-  ];
-  if (GUEST_MODE_ENABLED) {
-    authOptions.push({ value: "guest", label: "Guest Mode", hint: "Limited to 20 requests" });
-  }
-
-  const mode = await select({
-    message: "How would you like to authenticate?",
-    options: authOptions,
-  });
-
-  if (isCancel(mode)) {
-    cancel("Setup cancelled");
-    throw new CliError("Setup cancelled");
-  }
-
-  if (mode === "guest") return undefined;
-
-  if (mode === "oauth") {
-    const key = await authenticateWithOAuth(resolveBaseUrl(config));
-    await saveConfig({ ...config, apiKey: key });
-    return key;
-  }
-
-  const key = await promptForApiKey();
+  const source = await promptApiKeySource();
+  const key = source === "browser"
+    ? await authenticateWithOAuth(resolveBaseUrl(config))
+    : await promptForApiKey();
   await saveConfig({ ...config, apiKey: key });
   return key;
 }
@@ -295,7 +302,7 @@ async function promptAuthChoice(
       {
         value: "api-key" as const,
         label: "API key",
-        hint: "Write X-API-Key into the client config (long-lived, no refresh)",
+        hint: "Long-lived sk-need-* key, written as X-API-Key (no refresh)",
       },
     ],
   });
@@ -752,8 +759,8 @@ export async function runSetup(
     // key handed in, not a prompt.
     if (!providedKey && !hasInteractiveTerminal()) {
       throw new CliError(
-        `${client.name} does not support browser OAuth. Pass --key sk-need-... ` +
-          `(create one at ${resolveBaseUrl({})}/api-keys), or run in a terminal.`
+        `${client.name} does not support OAuth 2.1. Pass --key sk-need-... ` +
+          `(create one at ${resolveBaseUrl({})}/api-keys), or run in a terminal to create one via browser.`
       );
     }
     apiKey = await ensureApiKey(providedKey, authMode);

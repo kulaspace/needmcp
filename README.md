@@ -8,17 +8,12 @@ NeedMCP official CLI — Configure MCP for AI coding assistants with one command
 
 ## Authentication
 
-NeedMCP uses an API key to authenticate requests. You can obtain a key in one of two ways:
+NeedMCP accepts two credential families:
 
-### 1. Browser login (OAuth) — recommended
-
-The easiest way. During `needmcp setup`, choose **Login with Browser (OAuth)**: a browser tab opens, you sign in to NeedMCP, and a dedicated API key is generated automatically and saved to `~/.needmcp/config.json`. No copy-pasting required.
-
-### 2. Manual API key
-
-1. Go to [needmcp.com](https://needmcp.com) and sign in
-2. Navigate to the API Keys section in your dashboard
-3. Generate a new key (format: `sk-need-xxx`) and paste it during setup
+- **OAuth 2.1** — for clients that support it (Claude Code, Opencode, Codex, Cursor, VS Code, …). The client signs in via browser and refreshes its own 1-hour token; setup writes a header-free config entry.
+- **API key** (`sk-need-*`) — a long-lived static key, written as `X-API-Key`. You can obtain one in two ways:
+  - **Create one via browser** — recommended. During `needmcp setup`, choose **API key** → **Create one via browser**: a browser tab opens, you sign in, and a dedicated key is generated and saved to `~/.needmcp/config.json`. No copy-pasting required.
+  - **Manual** — go to [needmcp.com](https://needmcp.com), open the API Keys section in your dashboard, generate a key (format: `sk-need-xxx`) and paste it during setup.
 
 > **Note:** Guest mode (unauthenticated, limited requests) is temporarily disabled. An API key is required to complete setup.
 
@@ -44,21 +39,28 @@ Interactive setup — choose your AI client, select config scope (global or proj
 needmcp setup
 ```
 
-When run, you'll be asked **how to authenticate**:
+The prompt depends on what the client supports. Clients that speak OAuth 2.1 are asked:
 
 | Option | Description |
 | :--- | :--- |
-| Login with Browser (OAuth) | *(Recommended)* Opens your browser and auto-generates a dedicated API key |
-| Enter API Key | Paste an existing `sk-need-xxx` key |
+| OAuth 2.1 | *(Recommended)* The client signs in via browser and refreshes its own 1-hour token |
+| API key | A long-lived `sk-need-*` key written into the config |
+
+Choosing **API key** — or setting up a client without OAuth 2.1 — asks how to obtain the key:
+
+| Option | Description |
+| :--- | :--- |
+| Create one via browser | *(Recommended)* Sign in once; NeedMCP issues a dedicated `sk-need-*` key |
+| Paste an existing key | Use a key from `needmcp.com/api-keys` |
 
 If a valid key is already stored at `~/.needmcp/config.json`, you'll be asked whether to reuse it.
 
-#### OAuth 2.1 vs API key
+#### Credentials: OAuth 2.1 token vs API key
 
-> **Two different things share the OAuth name.** `needmcp setup --auth oauth` is
-> *OAuth-to-get-a-key*: it signs you in and stores a long-lived `sk-need-*` key in
-> `~/.needmcp/config.json`. **OAuth 2.1 client mode** (below) is different: the AI
-> client itself obtains and refreshes an OAuth access token.
+> **"Create one via browser" is not an auth mode.** It only issues an
+> `sk-need-*` API key; the client still authenticates with that key on every
+> request. OAuth 2.1 is different: the AI client itself obtains and refreshes an
+> OAuth access token.
 
 The NeedMCP `/mcp` endpoint accepts **both** credential families on the same route,
 discriminated purely by token prefix:
@@ -147,7 +149,7 @@ revoke the connection from the NeedMCP dashboard.
 Authenticate and configure in a single command:
 
 ```bash
-# Authenticate with browser OAuth
+# Use OAuth 2.1 (client-managed)
 needmcp setup --auth oauth
 
 # Provide an API key directly
@@ -161,7 +163,7 @@ needmcp setup --client opencode --scope global --auth oauth --yes --json
 | Flag | Description |
 | :--- | :--- |
 | `-k, --key <key>` | Use the provided NeedMCP API key |
-| `-a, --auth <method>` | Auth method: `oauth` or `key` |
+| `-a, --auth <method>` | Auth method: `oauth` (OAuth 2.1, or a browser-created key for clients without it) or `key` |
 | `-c, --client <id>` | Client to configure, skips the picker (`opencode`, `cursor`, `claude-code`, …) |
 | `-s, --scope <scope>` | Config scope: `global` or `project` |
 | `-y, --yes` | Accept the recommended answers instead of prompting |
@@ -220,11 +222,11 @@ Show installed version.
 ## Step-by-Step
 
 ```bash
-# 1. Run setup (interactive) — choose "Login with Browser (OAuth)" when prompted
+# 1. Run setup (interactive) — choose "OAuth 2.1", or "API key" → "Create one via browser"
 needmcp setup
 
 # Alternatively, authenticate non-interactively:
-#   needmcp setup --auth oauth          (browser login)
+#   needmcp setup --auth oauth          (OAuth 2.1, or browser-created key)
 #   needmcp setup --key sk-need-xxxx    (paste your key)
 
 # 2. Lock a design style for your session

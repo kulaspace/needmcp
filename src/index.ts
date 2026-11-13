@@ -31,7 +31,7 @@ Examples:
   ${pc.dim("# Setup with API key")}
   ${pc.cyan("needmcp setup --key sk-need-xxxx")}
 
-  ${pc.dim("# Setup using browser OAuth (default choice)")}
+  ${pc.dim("# Setup with OAuth 2.1 (default choice)")}
   ${pc.cyan("needmcp setup --auth oauth")}
 
   ${pc.dim("# Non-interactive, for AI agents")}
@@ -49,7 +49,7 @@ program
   .command("setup")
   .description("Setup NeedMCP MCP server for your AI clients")
   .option("-k, --key <key>", "NeedMCP API key")
-  .option("-a, --auth <method>", "Auth method: oauth | key")
+  .option("-a, --auth <method>", "Auth: oauth (OAuth 2.1, or browser-created key) | key")
   .option("-c, --client <id>", "Client id to configure, skips the picker")
   .option("-s, --scope <scope>", "Config scope: global | project")
   .option("-y, --yes", "Accept recommended defaults instead of prompting")

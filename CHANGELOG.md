@@ -43,6 +43,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **API key setup no longer looks like a second OAuth option.** The auth menu used
+  to ask "Login with Browser (OAuth) / Enter API Key" *after* an API-key auth
+  choice, so two different things shared the OAuth name. The key-source menu now
+  reads **Create one via browser** / **Paste an existing key**, making it clear
+  that browser sign-in only issues an `sk-need-*` key; OAuth 2.1 remains the
+  client-managed token flow. `--auth oauth` keeps its behaviour: OAuth 2.1 where
+  supported, otherwise a browser-created key.
 - **Opencode is offered as two clients again:** `opencode` (v1) and `opencode2`,
   each using its own binary for native OAuth while sharing the single
   `mcp.needmcp` shape in `opencode.jsonc`.
